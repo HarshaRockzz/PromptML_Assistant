@@ -1,14 +1,10 @@
-matplotlib
-numpy
-pandas
-python-dotenv
-seaborn
-streamlit
-huggingface-hub
 langchain-huggingface
 apikey
 langchain_community
 langchain
+python-dotenv
+seaborn
+streamlit
 langchain_core
 langchain_experimental
 pydantic
@@ -21,3 +17,7 @@ libmagic
 tesseract
 pinecone-client
 wikipedia
+matplotlib
+numpy
+pandas
+huggingface-hub
