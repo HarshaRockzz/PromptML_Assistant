@@ -1,23 +1,34 @@
-langchain-huggingface
-apikey
-langchain_community
+# LangChain & Hugging Face
 langchain
-python-dotenv
-seaborn
-streamlit
+langchain-huggingface
+langchain_community
 langchain_core
 langchain_experimental
-pydantic
-tabulate
-streamlit_chat
+huggingface-hub
+
+# NLP & Embeddings
 sentence_transformers
+wikipedia
+
+# Data Handling & Visualization
+numpy
+pandas
+matplotlib
+seaborn
+tabulate
+
+# Streamlit & Chat UI
+streamlit
+streamlit_chat
+
+# Pinecone for Vector Search
+pinecone
+
+# Environment Variables & Config
+python-dotenv
+
+# OCR & Unstructured Data Processing (if needed)
 unstructured
 unstructured_inference
 libmagic
 tesseract
-pinecone-client
-wikipedia
-matplotlib
-numpy
-pandas
-huggingface-hub
