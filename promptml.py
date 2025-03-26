@@ -193,7 +193,13 @@ def load_model():
         memory = psutil.virtual_memory()
         st.write(f"Memory usage after loading model: {memory.percent}% ({memory.used / 1024**3:.2f} GB used)")
 
-        return HuggingFacePipeline.from_model_id(model_id=model_name, tokenizer=tokenizer, model=model)
+        # Add the task argument
+        return HuggingFacePipeline.from_model_id(
+            model_id=model_name,
+            tokenizer=tokenizer,
+            model=model,
+            task="text-classification"
+        )
     except Exception as e:
         st.error(f"Model loading failed: {str(e)}. Please check your Hugging Face token and network connection.")
         return None
