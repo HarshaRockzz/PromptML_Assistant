@@ -31,23 +31,10 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for enhanced UI
-st.markdown("""
-    <style>
-    .main {background-color: #f0f2f6;}
-    .stButton>button {background-color: #4CAF50; color: white; border-radius: 12px; padding: 10px 20px;}
-    .stTextInput>div>input {border-radius: 12px; padding: 8px;}
-    .sidebar .sidebar-content {background-color: #ffffff; border-right: 2px solid #ddd; padding: 20px;}
-    .stSlider > div > div > div {background-color: #4CAF50;}
-    </style>
-""", unsafe_allow_html=True)
-
 # Advanced Sidebar with option menu and theme toggle
 with st.sidebar:
     st.image("https://via.placeholder.com/150", caption="PromptML")
     theme = st.toggle("Dark Mode", value=False)
-    if theme:
-        st.markdown("<style>.main {background-color: #1e1e1e; color: #ffffff;}</style>", unsafe_allow_html=True)
     
     selected = option_menu(
         menu_title="Navigation",
@@ -56,14 +43,105 @@ with st.sidebar:
         menu_icon="cast",
         default_index=0,
         styles={
-            "container": {"padding": "10px", "background-color": "#fafafa" if not theme else "#333"},
-            "icon": {"color": "#4CAF50", "font-size": "22px"},
-            "nav-link": {"font-size": "18px", "text-align": "left", "margin": "5px", "--hover-color": "#ddd"},
-            "nav-link-selected": {"background-color": "#4CAF50", "color": "white"},
+            "container": {"padding": "10px", "background-color": "#e0e0e0" if not theme else "#2a2a2a"},
+            "icon": {"color": "#0288d1", "font-size": "22px"},
+            "nav-link": {"font-size": "18px", "text-align": "left", "margin": "5px", "--hover-color": "#b0bec5", "color": "#212121" if not theme else "#e0e0e0"},
+            "nav-link-selected": {"background-color": "#0288d1", "color": "white"},
         }
     )
     temperature = st.slider("AI Temperature", 0.01, 1.0, 0.1, 0.01)
     uploaded_files = st.file_uploader("Upload Data", type=["csv", "xlsx"], accept_multiple_files=True)
+
+# Custom CSS for enhanced UI with improved colors
+st.markdown("""
+    <style>
+    /* Light Mode */
+    .main {
+        background-color: #f5f5f5;
+        color: #212121;
+    }
+    .stButton>button {
+        background-color: #0288d1;
+        color: white;
+        border-radius: 12px;
+        padding: 10px 20px;
+        border: none;
+    }
+    .stButton>button:hover {
+        background-color: #0277bd;
+    }
+    .stTextInput>div>input {
+        border-radius: 12px;
+        padding: 8px;
+        border: 1px solid #0288d1;
+        background-color: #ffffff;
+        color: #212121;
+    }
+    .sidebar .sidebar-content {
+        background-color: #e0e0e0;
+        border-right: 2px solid #b0bec5;
+        padding: 20px;
+    }
+    .stSlider > div > div > div {
+        background-color: #0288d1;
+    }
+    .stAlert {
+        background-color: #ffebee !important;
+        color: #d32f2f !important;
+        border: 1px solid #d32f2f;
+        border-radius: 8px;
+    }
+    .stWarning {
+        background-color: #fff3e0 !important;
+        color: #f57c00 !important;
+        border: 1px solid #f57c00;
+        border-radius: 8px;
+    }
+    .stSuccess {
+        background-color: #e8f5e9 !important;
+        color: #2e7d32 !important;
+        border: 1px solid #2e7d32;
+        border-radius: 8px;
+    }
+    h1, h2, h3, h4, h5, h6 {
+        color: #0288d1;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# Apply dark mode styles if toggled
+if theme:
+    st.markdown("""
+        <style>
+        .main {
+            background-color: #212121;
+            color: #e0e0e0;
+        }
+        .stTextInput>div>input {
+            background-color: #424242;
+            color: #e0e0e0;
+            border: 1px solid #0288d1;
+        }
+        .stAlert {
+            background-color: #d32f2f !important;
+            color: #ffffff !important;
+            border: 1px solid #b71c1c;
+        }
+        .stWarning {
+            background-color: #ff9800 !important;
+            color: #ffffff !important;
+            border: 1px solid #f57c00;
+        }
+        .stSuccess {
+            background-color: #4caf50 !important;
+            color: #ffffff !important;
+            border: 1px solid #388e3c;
+        }
+        h1, h2, h3, h4, h5, h6 {
+            color: #4fc3f7;
+        }
+        </style>
+    """, unsafe_allow_html=True)
 
 # Load Data with Progress Bar and Animation
 if uploaded_files:
@@ -128,12 +206,12 @@ if selected == "EDA":
                 column = st.selectbox("Select Column", df.columns)
             with col2:
                 if viz_type == "Histogram":
-                    fig = px.histogram(df, x=column, marginal="box", color_discrete_sequence=["#4CAF50"])
+                    fig = px.histogram(df, x=column, marginal="box", color_discrete_sequence=["#0288d1"])
                 elif viz_type == "Scatter":
                     y_col = st.selectbox("Y-axis", df.columns)
-                    fig = px.scatter(df, x=column, y=y_col, trendline="ols", color_discrete_sequence=["#4CAF50"])
+                    fig = px.scatter(df, x=column, y=y_col, trendline="ols", color_discrete_sequence=["#0288d1"])
                 elif viz_type == "Box":
-                    fig = px.box(df, y=column, color_discrete_sequence=["#4CAF50"])
+                    fig = px.box(df, y=column, color_discrete_sequence=["#0288d1"])
                 else:
                     fig = px.imshow(df.corr(), text_auto=True, color_continuous_scale="Viridis")
                 st.plotly_chart(fig, use_container_width=True)
@@ -175,7 +253,7 @@ elif selected == "Predictions":
                         predictions = llm(f"Predict {model_choice} outcomes for the dataset")
                         st.write(predictions)
                         fig = go.Figure(data=go.Scatter(y=[float(x) for x in predictions.split() if x.replace('.', '', 1).isdigit()],
-                                                        mode="lines+markers", line=dict(color="#4CAF50")))
+                                                        mode="lines+markers", line=dict(color="#0288d1")))
                         st.plotly_chart(fig, use_container_width=True)
                 else:
                     st.error("Cannot generate predictions because the AI model failed to load.")
@@ -237,7 +315,7 @@ elif selected == "Dashboard":
             layout = [
                 dashboard.Item("metrics", 0, 0, 2, 1),
                 dashboard.Item("insights", 2, 0, 2, 1),
-                dashboard.Item("plot", 0, 1, 4, 2),
+                dashboard.Item("plot", 藍0, 1, 4, 2),
             ]
             with dashboard.Grid(layout):
                 mui.Card(
