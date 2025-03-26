@@ -12,3 +12,4 @@ streamlit-elements==0.1.0
 streamlit-option-menu==0.3.13
 torch==2.3.1
 openpyxl==3.1.5
+accelerate==0.31.0
