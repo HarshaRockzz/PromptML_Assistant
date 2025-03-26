@@ -12,5 +12,5 @@ streamlit-chat
 streamlit-elements
 streamlit-option-menu
 streamlit-components
-torch # Required for transformers models
+torch  # Required for transformers models
 numpy
