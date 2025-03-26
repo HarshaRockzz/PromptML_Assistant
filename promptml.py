@@ -4,124 +4,104 @@ import streamlit as st
 from dotenv import load_dotenv, find_dotenv
 from langchain_community.llms import HuggingFaceHub
 from langchain_experimental.agents import create_pandas_dataframe_agent
-from langchain.prompts import PromptTemplate
-from langchain.chains import LLMChain, SequentialChain
-from langchain.agents import initialize_agent, Tool
-from langchain_experimental.utilities import PythonREPL
-from langchain.agents.agent_types import AgentType
-from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
 from langchain.chains import ConversationChain
+from langchain.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder
 from langchain.chains.conversation.memory import ConversationBufferWindowMemory
-from langchain.prompts import (
-    SystemMessagePromptTemplate,
-    HumanMessagePromptTemplate,
-    ChatPromptTemplate,
-    MessagesPlaceholder
-)
+from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
 from streamlit_chat import message
-import wikipedia
-from streamlit_elements import elements, mui, html
-from important_functions import *
+import plotly.express as px
+from streamlit_elements import elements, mui, html, dashboard
 
 # Load environment variables
-dotenv_path = find_dotenv()
-load_dotenv(dotenv_path)
+load_dotenv(find_dotenv())
 
-# Set wide layout
-st.set_page_config(layout="wide")
+# Set Streamlit page config
+st.set_page_config(page_title="PromptML: NextGen AI Assistant", layout="wide")
 
-# Title and Header
-st.title("Advanced AI Data Scientist Assistant")
-st.markdown("Explore your data with cutting-edge tools and a smart chatbot!")
-
-# Sidebar for navigation and settings
+# Sidebar
 with st.sidebar:
     st.header("Settings & Navigation")
-    page = st.selectbox("Choose a Page", ["Data Analysis", "Dashboard", "Chatbot"])
-    st.slider("Temperature (for LLM)", min_value=0.01, max_value=1.0, value=0.1, step=0.01, key="temp")
-    uploaded_files = st.file_uploader("Upload CSV Files", type="csv", accept_multiple_files=True)
+    page = st.selectbox("Choose a Page", ["Exploratory Data Analysis (EDA)", "Model Selection", "Prediction", "Chatbot"])
+    temperature = st.slider("Temperature (LLM)", 0.01, 1.0, 0.1, 0.01)
+    uploaded_files = st.file_uploader("Upload CSV Files", type=["csv", "xlsx"], accept_multiple_files=True)
 
-# Main content based on selected page
-if page == "Data Analysis":
-    st.header("Data Analysis Section")
-    if uploaded_files:
-        dfs = [pd.read_csv(file, low_memory=False) for file in uploaded_files]
-        df = pd.concat(dfs, ignore_index=True) if len(dfs) > 1 else dfs[0]
-        
-        # Initialize LLM
-        llm = HuggingFaceHub(
-            repo_id="mistralai/Mistral-7B-v0.1",
-            model_kwargs={'temperature': st.session_state.temp},
-            huggingfacehub_api_token=os.getenv("HUGGINGFACEHUB_API_TOKEN")
-        )
+# Load Data
+if uploaded_files:
+    dfs = [pd.read_csv(file, low_memory=False) if file.name.endswith(".csv") else pd.read_excel(file) for file in uploaded_files]
+    df = pd.concat(dfs, ignore_index=True) if len(dfs) > 1 else dfs[0]
+else:
+    df = None
+
+# LLM Setup
+llm = HuggingFaceHub(
+    repo_id="mistralai/Mistral-7B-v0.1",
+    model_kwargs={'temperature': temperature},
+    huggingfacehub_api_token=os.getenv("HUGGINGFACEHUB_API_TOKEN")
+)
+
+if page == "Exploratory Data Analysis (EDA)":
+    st.header("📊 Exploratory Data Analysis")
+    if df is not None:
         pandas_agent = create_pandas_dataframe_agent(llm, df, verbose=True, allow_dangerous_code=True)
-
-        # Tabs for different analysis sections
         tab1, tab2, tab3 = st.tabs(["Overview", "EDA Steps", "Custom Analysis"])
         
         with tab1:
-            st.subheader("Data Overview")
             st.write(df.head())
             st.write(df.describe())
+            fig = px.histogram(df, x=df.columns[0])
+            st.plotly_chart(fig)
         
         with tab2:
-            st.subheader("Exploratory Data Analysis")
-            with st.expander("EDA Steps"):
-                steps = llm('What are the steps of EDA')
-                st.write(steps)
+            steps = llm("What are the steps of EDA")
+            st.write(steps)
             st.write(pandas_agent.run("Summarize the dataset"))
-
+        
         with tab3:
-            st.subheader("Custom Analysis")
             user_query = st.text_input("Ask about your data:")
             if user_query:
                 result = pandas_agent.run(user_query)
                 st.write(result)
+    else:
+        st.warning("Please upload a dataset to proceed.")
 
-elif page == "Dashboard":
-    st.header("Interactive Dashboard")
-    if uploaded_files:
-        dfs = [pd.read_csv(file, low_memory=False) for file in uploaded_files]
-        df = pd.concat(dfs, ignore_index=True) if len(dfs) > 1 else dfs[0]
+elif page == "Model Selection":
+    st.header("📌 Model Selection")
+    if df is not None:
+        model_recommendation = llm("Recommend the best machine learning model for this dataset")
+        st.write(model_recommendation)
+    else:
+        st.warning("Please upload a dataset to get model recommendations.")
 
-        # Draggable and resizable dashboard using streamlit-elements
-        with elements("dashboard"):
-            mui.Typography("Dashboard", variant="h4")
-            with mui.Grid(container=True, spacing=2):
-                with mui.Grid(item=True, xs=6):
-                    mui.Paper(
-                        mui.Typography("Data Summary", variant="h6"),
-                        html.div(str(df.describe().to_html()), style={"overflow": "auto", "maxHeight": "300px"})
-                    )
-                with mui.Grid(item=True, xs=6):
-                    mui.Paper(
-                        mui.Typography("Column Names", variant="h6"),
-                        html.ul([html.li(col) for col in df.columns])
-                    )
+elif page == "Prediction":
+    st.header("🔮 Make Predictions")
+    st.write("Upload test data to get real-time predictions using trained models.")
+    if df is not None:
+        user_query = st.text_input("Describe your prediction task:")
+        if user_query:
+            prediction = llm(f"Based on the dataset, make predictions for: {user_query}")
+            st.write(prediction)
+    else:
+        st.warning("Please upload a dataset first.")
 
 elif page == "Chatbot":
-    st.header("AI Chatbot")
-    st.write("Ask me anything about data science or your uploaded data!")
-
+    st.header("💬 AI Chatbot")
     if 'responses' not in st.session_state:
-        st.session_state['responses'] = ["How can I assist you today?"]
+        st.session_state['responses'] = ["Hello! How can I assist you?"]
     if 'requests' not in st.session_state:
         st.session_state['requests'] = []
-
-    # Initialize chatbot
-    llm = HuggingFaceEndpoint(
+    
+    chat_llm = HuggingFaceEndpoint(
         repo_id="HuggingFaceH4/zephyr-7b-beta",
         task="text-generation",
         max_new_tokens=512,
         do_sample=False,
-        repetition_penalty=1.03,
-        temperature=st.session_state.temp,
+        temperature=temperature
     )
-    chat_model = ChatHuggingFace(llm=llm)
+    chat_model = ChatHuggingFace(llm=chat_llm)
     
     if 'buffer_memory' not in st.session_state:
         st.session_state.buffer_memory = ConversationBufferWindowMemory(k=3, return_messages=True)
-
+    
     sys_msg_template = SystemMessagePromptTemplate.from_template(
         template="Answer truthfully using provided context. If unsure, say 'I don’t know'."
     )
@@ -130,28 +110,17 @@ elif page == "Chatbot":
         [sys_msg_template, MessagesPlaceholder(variable_name="history"), human_msg_temp]
     )
     conversation = ConversationChain(
-        memory=st.session_state.buffer_memory, prompt=prompt_template, llm=llm, verbose=True
+        memory=st.session_state.buffer_memory, prompt=prompt_template, llm=chat_llm, verbose=True
     )
-
-    # Chat interface
-    response_container = st.container()
-    text_container = st.container()
-
-    with text_container:
-        query = st.text_input("Your question:", key="chat_input")
-        if query:
-            with st.spinner("Thinking..."):
-                conversation_string = get_conversation_string()
-                refined_query = query_refiner(conversation_string, query)
-                st.subheader("Refined Query:")
-                st.write(refined_query)
-                context = find_match(refined_query)
-                response = conversation.predict(input=f"Context:\n{context}\n\nQuery:\n{query}")
-                st.session_state.requests.append(query)
-                st.session_state.responses.append(response)
-
-    with response_container:
-        for i in range(len(st.session_state['responses'])):
-            message(st.session_state['responses'][i], key=str(i))
-            if i < len(st.session_state['requests']):
-                message(st.session_state["requests"][i], is_user=True, key=str(i) + '_user')
+    
+    query = st.text_input("Your question:", key="chat_input")
+    if query:
+        with st.spinner("Thinking..."):
+            response = conversation.predict(input=query)
+            st.session_state.requests.append(query)
+            st.session_state.responses.append(response)
+    
+    for i in range(len(st.session_state['responses'])):
+        message(st.session_state['responses'][i], key=str(i))
+        if i < len(st.session_state['requests']):
+            message(st.session_state["requests"][i], is_user=True, key=str(i) + '_user')
