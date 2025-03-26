@@ -22,4 +22,4 @@ tesseract
 streamlit-elements
 pinecone-client
 wikipedia
-# python-poppler
+plotly
