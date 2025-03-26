@@ -5,10 +5,13 @@ import plotly.express as px
 from dotenv import load_dotenv
 try:
     from transformers import AutoModelForSequenceClassification, AutoTokenizer
-    st.write("Successfully imported transformers!")
 except ImportError as e:
-    st.error(f"Failed to import transformers: {str(e)}")
-    raise e
+    # We'll display the error after setting page config
+    transformers_import_error = str(e)
+    transformers_import_success = False
+else:
+    transformers_import_success = True
+    transformers_import_error = None
 from langchain_community.llms import HuggingFacePipeline
 from langchain_experimental.agents import create_pandas_dataframe_agent
 from langchain.chains import ConversationChain
@@ -26,8 +29,6 @@ import psutil  # For monitoring memory usage
 # Load environment variables
 load_dotenv()
 HUGGINGFACEHUB_API_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN")
-if not HUGGINGFACEHUB_API_TOKEN:
-    st.error("HUGGINGFACEHUB_API_TOKEN not found in .env file. Please set it and restart the app.")
 
 # Set page config with custom icon (MUST BE FIRST STREAMLIT COMMAND)
 st.set_page_config(
@@ -36,6 +37,16 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# Now we can use Streamlit commands to display import status and token validation
+if transformers_import_success:
+    st.write("Successfully imported transformers!")
+else:
+    st.error(f"Failed to import transformers: {transformers_import_error}")
+    raise ImportError(transformers_import_error)
+
+if not HUGGINGFACEHUB_API_TOKEN:
+    st.error("HUGGINGFACEHUB_API_TOKEN not found in .env file. Please set it and restart the app.")
 
 # Advanced Sidebar with option menu and theme toggle
 with st.sidebar:
