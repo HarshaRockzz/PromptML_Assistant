@@ -16,6 +16,7 @@ import streamlit.components.v1 as components
 from streamlit_option_menu import option_menu
 import plotly.graph_objects as go
 from datetime import datetime
+import psutil  # For monitoring memory usage
 
 # Load environment variables
 load_dotenv()
@@ -160,13 +161,22 @@ else:
 @st.cache_resource
 def load_model():
     try:
-        model_name = "mistralai/Mistral-7B-v0.1"
+        # Log memory usage before loading
+        memory = psutil.virtual_memory()
+        st.write(f"Memory usage before loading model: {memory.percent}% ({memory.used / 1024**3:.2f} GB used)")
+
+        # Use a smaller model for testing
+        model_name = "facebook/bart-base"
         st.write(f"Attempting to load model: {model_name}")
         tokenizer = AutoTokenizer.from_pretrained(model_name, token=HUGGINGFACEHUB_API_TOKEN)
         st.write("Tokenizer loaded successfully.")
-        # Temporarily remove device_map to bypass accelerate requirement for debugging
         model = AutoModelForCausalLM.from_pretrained(model_name, token=HUGGINGFACEHUB_API_TOKEN)
         st.write("Model loaded successfully.")
+
+        # Log memory usage after loading
+        memory = psutil.virtual_memory()
+        st.write(f"Memory usage after loading model: {memory.percent}% ({memory.used / 1024**3:.2f} GB used)")
+
         return HuggingFacePipeline.from_model_id(model_id=model_name, tokenizer=tokenizer, model=model)
     except Exception as e:
         st.error(f"Model loading failed: {str(e)}. Please check your Hugging Face token and network connection.")
