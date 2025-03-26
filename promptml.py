@@ -21,7 +21,15 @@ from datetime import datetime
 load_dotenv()
 HUGGINGFACEHUB_API_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN")
 
-# Custom CSS for enhanced UI
+# Set page config with custom icon (MUST BE FIRST STREAMLIT COMMAND)
+st.set_page_config(
+    page_title="PromptML: NextGen AI Assistant",
+    page_icon="🤖",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Custom CSS for enhanced UI (Moved after set_page_config)
 st.markdown("""
     <style>
     .main {background-color: #f0f2f6;}
@@ -31,14 +39,6 @@ st.markdown("""
     .stSlider > div > div > div {background-color: #4CAF50;}
     </style>
 """, unsafe_allow_html=True)
-
-# Set page config with custom icon
-st.set_page_config(
-    page_title="PromptML: NextGen AI Assistant",
-    page_icon="🤖",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
 
 # Advanced Sidebar with option menu and theme toggle
 with st.sidebar:
