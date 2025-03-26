@@ -19,15 +19,16 @@ from datetime import datetime
 
 # Load environment variables
 load_dotenv()
-os.environ["HUGGINGFACEHUB_API_TOKEN"] = "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"
+HUGGINGFACEHUB_API_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN")
 
 # Custom CSS for enhanced UI
 st.markdown("""
     <style>
     .main {background-color: #f0f2f6;}
-    .stButton>button {background-color: #4CAF50; color: white; border-radius: 8px;}
-    .stTextInput>div>input {border-radius: 8px;}
-    .sidebar .sidebar-content {background-color: #ffffff; border-right: 1px solid #ddd;}
+    .stButton>button {background-color: #4CAF50; color: white; border-radius: 12px; padding: 10px 20px;}
+    .stTextInput>div>input {border-radius: 12px; padding: 8px;}
+    .sidebar .sidebar-content {background-color: #ffffff; border-right: 2px solid #ddd; padding: 20px;}
+    .stSlider > div > div > div {background-color: #4CAF50;}
     </style>
 """, unsafe_allow_html=True)
 
@@ -39,9 +40,13 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Advanced Sidebar with option menu
+# Advanced Sidebar with option menu and theme toggle
 with st.sidebar:
     st.image("https://via.placeholder.com/150", caption="PromptML")
+    theme = st.toggle("Dark Mode", value=False)
+    if theme:
+        st.markdown("<style>.main {background-color: #1e1e1e; color: #ffffff;}</style>", unsafe_allow_html=True)
+    
     selected = option_menu(
         menu_title="Navigation",
         options=["EDA", "Model Selection", "Predictions", "AI Chatbot", "Dashboard"],
@@ -49,16 +54,16 @@ with st.sidebar:
         menu_icon="cast",
         default_index=0,
         styles={
-            "container": {"padding": "0!important", "background-color": "#fafafa"},
-            "icon": {"color": "#4CAF50", "font-size": "20px"},
-            "nav-link": {"font-size": "16px", "text-align": "left", "margin": "0px", "--hover-color": "#eee"},
-            "nav-link-selected": {"background-color": "#4CAF50"},
+            "container": {"padding": "10px", "background-color": "#fafafa" if not theme else "#333"},
+            "icon": {"color": "#4CAF50", "font-size": "22px"},
+            "nav-link": {"font-size": "18px", "text-align": "left", "margin": "5px", "--hover-color": "#ddd"},
+            "nav-link-selected": {"background-color": "#4CAF50", "color": "white"},
         }
     )
     temperature = st.slider("AI Temperature", 0.01, 1.0, 0.1, 0.01)
     uploaded_files = st.file_uploader("Upload Data", type=["csv", "xlsx"], accept_multiple_files=True)
 
-# Load Data with Progress Bar
+# Load Data with Progress Bar and Animation
 if uploaded_files:
     with st.spinner("Loading data..."):
         progress_bar = st.progress(0)
@@ -67,6 +72,7 @@ if uploaded_files:
             dfs.append(pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file))
             progress_bar.progress((i + 1) / len(uploaded_files))
         df = pd.concat(dfs, ignore_index=True) if len(dfs) > 1 else dfs[0]
+        st.success("Data loaded successfully!")
 else:
     df = None
 
@@ -75,8 +81,8 @@ else:
 def load_model():
     try:
         model_name = "mistralai/Mistral-7B-v0.1"
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto")
+        tokenizer = AutoTokenizer.from_pretrained(model_name, token=HUGGINGFACEHUB_API_TOKEN)
+        model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto", token=HUGGINGFACEHUB_API_TOKEN)
         return HuggingFacePipeline.from_model_id(model_id=model_name, tokenizer=tokenizer, model=model)
     except Exception as e:
         st.error(f"Model loading failed: {str(e)}")
@@ -90,35 +96,38 @@ if selected == "EDA":
     if df is not None:
         pandas_agent = create_pandas_dataframe_agent(llm, df, verbose=True, allow_dangerous_code=True)
         
-        # Multi-column layout
-        col1, col2 = st.columns(2)
-        with col1:
+        # Multi-column layout with tabs
+        tab1, tab2, tab3 = st.tabs(["Overview", "Health", "Visualizations"])
+        
+        with tab1:
             st.subheader("Data Overview")
-            st.dataframe(df.head(), use_container_width=True)
-            with st.expander("Statistical Summary"):
+            st.dataframe(df.head(), use_container_width=True, height=300)
+            with st.expander("Statistical Summary", expanded=False):
                 st.write(df.describe())
         
-        with col2:
+        with tab2:
             st.subheader("Data Health")
             missing = df.isnull().sum()
-            fig_missing = px.pie(names=missing.index, values=missing.values, title="Missing Values")
-            st.plotly_chart(fig_missing)
+            fig_missing = px.pie(names=missing.index, values=missing.values, title="Missing Values", hole=0.3)
+            st.plotly_chart(fig_missing, use_container_width=True)
         
-        # Interactive Visualizations
-        st.subheader("Interactive Visualizations")
-        viz_type = st.selectbox("Chart Type", ["Histogram", "Scatter", "Box", "Correlation"])
-        column = st.selectbox("Select Column", df.columns)
-        
-        if viz_type == "Histogram":
-            fig = px.histogram(df, x=column, marginal="box")
-        elif viz_type == "Scatter":
-            y_col = st.selectbox("Y-axis", df.columns)
-            fig = px.scatter(df, x=column, y=y_col, trendline="ols")
-        elif viz_type == "Box":
-            fig = px.box(df, y=column)
-        else:
-            fig = px.imshow(df.corr(), text_auto=True)
-        st.plotly_chart(fig, use_container_width=True)
+        with tab3:
+            st.subheader("Interactive Visualizations")
+            col1, col2 = st.columns([1, 2])
+            with col1:
+                viz_type = st.selectbox("Chart Type", ["Histogram", "Scatter", "Box", "Correlation"])
+                column = st.selectbox("Select Column", df.columns)
+            with col2:
+                if viz_type == "Histogram":
+                    fig = px.histogram(df, x=column, marginal="box", color_discrete_sequence=["#4CAF50"])
+                elif viz_type == "Scatter":
+                    y_col = st.selectbox("Y-axis", df.columns)
+                    fig = px.scatter(df, x=column, y=y_col, trendline="ols", color_discrete_sequence=["#4CAF50"])
+                elif viz_type == "Box":
+                    fig = px.box(df, y=column, color_discrete_sequence=["#4CAF50"])
+                else:
+                    fig = px.imshow(df.corr(), text_auto=True, color_continuous_scale="Viridis")
+                st.plotly_chart(fig, use_container_width=True)
 
 # Model Selection with Advanced Features
 elif selected == "Model Selection":
@@ -134,6 +143,7 @@ elif selected == "Model Selection":
                 recommendation = llm(f"Recommend top 3 ML models for {problem_type} with target {target}")
                 st.success(recommendation)
                 st.balloons()
+                st.download_button("Download Recommendations", recommendation, "recommendations.txt")
     else:
         st.warning("Upload a dataset first!")
 
@@ -151,8 +161,9 @@ elif selected == "Predictions":
                 with st.spinner("Generating predictions..."):
                     predictions = llm(f"Predict {model_choice} outcomes for the dataset")
                     st.write(predictions)
-                    fig = go.Figure(data=go.Scatter(y=[float(x) for x in predictions.split() if x.isdigit()]))
-                    st.plotly_chart(fig)
+                    fig = go.Figure(data=go.Scatter(y=[float(x) for x in predictions.split() if x.replace('.', '', 1).isdigit()],
+                                                    mode="lines+markers", line=dict(color="#4CAF50")))
+                    st.plotly_chart(fig, use_container_width=True)
     else:
         st.warning("Upload a dataset first!")
 
@@ -163,23 +174,32 @@ elif selected == "AI Chatbot":
         repo_id="HuggingFaceH4/zephyr-7b-beta",
         task="text-generation",
         max_new_tokens=512,
-        temperature=temperature
+        temperature=temperature,
+        huggingfacehub_api_token=HUGGINGFACEHUB_API_TOKEN
     )
     chat_model = ChatHuggingFace(llm=chat_llm)
     
     if 'chat_history' not in st.session_state:
         st.session_state.chat_history = []
     
-    # Chat container
-    chat_container = st.container()
+    # Chat container with scroll
+    chat_container = st.container(height=400)
     with chat_container:
         for chat in st.session_state.chat_history:
             message(chat["content"], is_user=chat["is_user"], avatar_style="bottts" if not chat["is_user"] else "adventurer")
     
-    # Input form
+    # Input form with advanced features
     with st.form("chat_form", clear_on_submit=True):
-        query = st.text_area("Ask me anything:", height=100)
-        submit = st.form_submit_button("Send")
+        col1, col2 = st.columns([5, 1])
+        with col1:
+            query = st.text_area("Ask me anything:", height=100, placeholder="Type your question here...")
+        with col2:
+            submit = st.form_submit_button("Send")
+            clear = st.form_submit_button("Clear Chat")
+        
+        if clear:
+            st.session_state.chat_history = []
+            st.rerun()
     
     if submit and query:
         with st.spinner("Responding..."):
@@ -193,18 +213,32 @@ elif selected == "Dashboard":
     st.title("📈 Interactive Dashboard")
     if df is not None:
         with elements("advanced_dashboard"):
-            with mui.Stack(spacing=2):
+            layout = [
+                dashboard.Item("metrics", 0, 0, 2, 1),
+                dashboard.Item("insights", 2, 0, 2, 1),
+                dashboard.Item("plot", 0, 1, 4, 2),
+            ]
+            with dashboard.Grid(layout):
                 mui.Card(
                     mui.CardContent(
                         mui.Typography("Dataset Metrics", variant="h5"),
                         html.div(f"Rows: {df.shape[0]}, Columns: {df.shape[1]}")
-                    )
+                    ),
+                    key="metrics"
                 )
                 mui.Card(
                     mui.CardContent(
                         mui.Typography("Real-time Insights", variant="h5"),
                         html.div(f"Last Updated: {datetime.now().strftime('%H:%M:%S')}")
-                    )
+                    ),
+                    key="insights"
+                )
+                mui.Card(
+                    mui.CardContent(
+                        mui.Typography("Data Trend", variant="h5"),
+                        components.html(px.line(df.select_dtypes(include=['float64', 'int64'])).to_html(), height=300)
+                    ),
+                    key="plot"
                 )
     else:
         st.warning("Upload a dataset to view dashboard!")
