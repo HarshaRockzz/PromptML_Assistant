@@ -3,7 +3,12 @@ import pandas as pd
 import streamlit as st
 import plotly.express as px
 from dotenv import load_dotenv
-from transformers import AutoModelForCausalLM, AutoTokenizer
+try:
+    from transformers import AutoModelForSequenceClassification, AutoTokenizer
+    st.write("Successfully imported transformers!")
+except ImportError as e:
+    st.error(f"Failed to import transformers: {str(e)}")
+    raise e
 from langchain_community.llms import HuggingFacePipeline
 from langchain_experimental.agents import create_pandas_dataframe_agent
 from langchain.chains import ConversationChain
@@ -165,12 +170,12 @@ def load_model():
         memory = psutil.virtual_memory()
         st.write(f"Memory usage before loading model: {memory.percent}% ({memory.used / 1024**3:.2f} GB used)")
 
-        # Use a smaller model for testing
-        model_name = "facebook/bart-base"
+        # Use a smaller, compatible model
+        model_name = "distilbert-base-uncased"
         st.write(f"Attempting to load model: {model_name}")
         tokenizer = AutoTokenizer.from_pretrained(model_name, token=HUGGINGFACEHUB_API_TOKEN)
         st.write("Tokenizer loaded successfully.")
-        model = AutoModelForCausalLM.from_pretrained(model_name, token=HUGGINGFACEHUB_API_TOKEN)
+        model = AutoModelForSequenceClassification.from_pretrained(model_name, token=HUGGINGFACEHUB_API_TOKEN)
         st.write("Model loaded successfully.")
 
         # Log memory usage after loading
