@@ -20,6 +20,8 @@ from datetime import datetime
 # Load environment variables
 load_dotenv()
 HUGGINGFACEHUB_API_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN")
+if not HUGGINGFACEHUB_API_TOKEN:
+    st.error("HUGGINGFACEHUB_API_TOKEN not found in .env file. Please set it and restart the app.")
 
 # Set page config with custom icon (MUST BE FIRST STREAMLIT COMMAND)
 st.set_page_config(
@@ -29,7 +31,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for enhanced UI (Moved after set_page_config)
+# Custom CSS for enhanced UI
 st.markdown("""
     <style>
     .main {background-color: #f0f2f6;}
@@ -85,16 +87,23 @@ def load_model():
         model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto", token=HUGGINGFACEHUB_API_TOKEN)
         return HuggingFacePipeline.from_model_id(model_id=model_name, tokenizer=tokenizer, model=model)
     except Exception as e:
-        st.error(f"Model loading failed: {str(e)}")
+        st.error(f"Model loading failed: {str(e)}. Please check your Hugging Face token and network connection.")
         return None
 
 llm = load_model()
+
+# Check if model loaded successfully
+if llm is None:
+    st.warning("AI features are disabled due to model loading failure. Basic functionality is still available.")
 
 # EDA Page with Advanced Visualizations
 if selected == "EDA":
     st.title("📊 Exploratory Data Analysis")
     if df is not None:
-        pandas_agent = create_pandas_dataframe_agent(llm, df, verbose=True, allow_dangerous_code=True)
+        if llm is not None:
+            pandas_agent = create_pandas_dataframe_agent(llm, df, verbose=True, allow_dangerous_code=True)
+        else:
+            st.warning("EDA agent is disabled due to model loading failure.")
         
         # Multi-column layout with tabs
         tab1, tab2, tab3 = st.tabs(["Overview", "Health", "Visualizations"])
@@ -139,11 +148,14 @@ elif selected == "Model Selection":
             submitted = st.form_submit_button("Get Recommendations")
         
         if submitted:
-            with st.spinner("Analyzing..."):
-                recommendation = llm(f"Recommend top 3 ML models for {problem_type} with target {target}")
-                st.success(recommendation)
-                st.balloons()
-                st.download_button("Download Recommendations", recommendation, "recommendations.txt")
+            if llm is not None:
+                with st.spinner("Analyzing..."):
+                    recommendation = llm(f"Recommend top 3 ML models for {problem_type} with target {target}")
+                    st.success(recommendation)
+                    st.balloons()
+                    st.download_button("Download Recommendations", recommendation, "recommendations.txt")
+            else:
+                st.error("Cannot generate recommendations because the AI model failed to load.")
     else:
         st.warning("Upload a dataset first!")
 
@@ -158,26 +170,32 @@ elif selected == "Predictions":
         
         with col2:
             if predict_button:
-                with st.spinner("Generating predictions..."):
-                    predictions = llm(f"Predict {model_choice} outcomes for the dataset")
-                    st.write(predictions)
-                    fig = go.Figure(data=go.Scatter(y=[float(x) for x in predictions.split() if x.replace('.', '', 1).isdigit()],
-                                                    mode="lines+markers", line=dict(color="#4CAF50")))
-                    st.plotly_chart(fig, use_container_width=True)
+                if llm is not None:
+                    with st.spinner("Generating predictions..."):
+                        predictions = llm(f"Predict {model_choice} outcomes for the dataset")
+                        st.write(predictions)
+                        fig = go.Figure(data=go.Scatter(y=[float(x) for x in predictions.split() if x.replace('.', '', 1).isdigit()],
+                                                        mode="lines+markers", line=dict(color="#4CAF50")))
+                        st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.error("Cannot generate predictions because the AI model failed to load.")
     else:
         st.warning("Upload a dataset first!")
 
 # Enhanced Chatbot with Rich UI
 elif selected == "AI Chatbot":
     st.title("💬 AI Chatbot")
-    chat_llm = HuggingFaceEndpoint(
-        repo_id="HuggingFaceH4/zephyr-7b-beta",
-        task="text-generation",
-        max_new_tokens=512,
-        temperature=temperature,
-        huggingfacehub_api_token=HUGGINGFACEHUB_API_TOKEN
-    )
-    chat_model = ChatHuggingFace(llm=chat_llm)
+    if llm is not None:
+        chat_llm = HuggingFaceEndpoint(
+            repo_id="HuggingFaceH4/zephyr-7b-beta",
+            task="text-generation",
+            max_new_tokens=512,
+            temperature=temperature,
+            huggingfacehub_api_token=HUGGINGFACEHUB_API_TOKEN
+        )
+        chat_model = ChatHuggingFace(llm=chat_llm)
+    else:
+        st.warning("Chatbot is disabled due to model loading failure.")
     
     if 'chat_history' not in st.session_state:
         st.session_state.chat_history = []
@@ -202,11 +220,14 @@ elif selected == "AI Chatbot":
             st.rerun()
     
     if submit and query:
-        with st.spinner("Responding..."):
-            response = chat_model.predict(query)
-            st.session_state.chat_history.append({"content": query, "is_user": True})
-            st.session_state.chat_history.append({"content": response, "is_user": False})
-            st.rerun()
+        if llm is not None:
+            with st.spinner("Responding..."):
+                response = chat_model.predict(query)
+                st.session_state.chat_history.append({"content": query, "is_user": True})
+                st.session_state.chat_history.append({"content": response, "is_user": False})
+                st.rerun()
+        else:
+            st.error("Cannot respond because the AI model failed to load.")
 
 # Advanced Dashboard
 elif selected == "Dashboard":
