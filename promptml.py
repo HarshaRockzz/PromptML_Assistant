@@ -161,8 +161,12 @@ else:
 def load_model():
     try:
         model_name = "mistralai/Mistral-7B-v0.1"
+        st.write(f"Attempting to load model: {model_name}")
         tokenizer = AutoTokenizer.from_pretrained(model_name, token=HUGGINGFACEHUB_API_TOKEN)
-        model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto", token=HUGGINGFACEHUB_API_TOKEN)
+        st.write("Tokenizer loaded successfully.")
+        # Temporarily remove device_map to bypass accelerate requirement for debugging
+        model = AutoModelForCausalLM.from_pretrained(model_name, token=HUGGINGFACEHUB_API_TOKEN)
+        st.write("Model loaded successfully.")
         return HuggingFacePipeline.from_model_id(model_id=model_name, tokenizer=tokenizer, model=model)
     except Exception as e:
         st.error(f"Model loading failed: {str(e)}. Please check your Hugging Face token and network connection.")
@@ -315,7 +319,7 @@ elif selected == "Dashboard":
             layout = [
                 dashboard.Item("metrics", 0, 0, 2, 1),
                 dashboard.Item("insights", 2, 0, 2, 1),
-                dashboard.Item("plot", 藍0, 1, 4, 2),
+                dashboard.Item("plot", 0, 1, 4, 2),
             ]
             with dashboard.Grid(layout):
                 mui.Card(
