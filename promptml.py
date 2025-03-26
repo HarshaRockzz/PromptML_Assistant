@@ -4,7 +4,7 @@ import streamlit as st
 import plotly.express as px
 from dotenv import load_dotenv
 try:
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from transformers import AutoModelForSequenceClassification, AutoTokenizer
 except ImportError as e:
     # We'll display the error after setting page config
     transformers_import_error = str(e)
@@ -88,11 +88,11 @@ st.markdown("""
         background-color: #0277bd;
     }
     .stTextInput>div>input {
-        border-radius: "12px",
-        padding: "8px",
-        border: "1px solid #0288d1",
-        background-color: "#ffffff",
-        color: "#212121",
+        border-radius: 12px;
+        padding: 8px;
+        border: 1px solid #0288d1;
+        background-color: #ffffff;
+        color: #212121;
     }
     .sidebar .sidebar-content {
         background-color: #e0e0e0;
@@ -181,24 +181,24 @@ def load_model():
         memory = psutil.virtual_memory()
         st.write(f"Memory usage before loading model: {memory.percent}% ({memory.used / 1024**3:.2f} GB used)")
 
-        # Use a smaller generative model
-        model_name = "distilgpt2"
+        # Use a smaller, compatible model
+        model_name = "distilbert-base-uncased"
         st.write(f"Attempting to load model: {model_name}")
         tokenizer = AutoTokenizer.from_pretrained(model_name, token=HUGGINGFACEHUB_API_TOKEN)
         st.write("Tokenizer loaded successfully.")
-        model = AutoModelForCausalLM.from_pretrained(model_name, token=HUGGINGFACEHUB_API_TOKEN)
+        model = AutoModelForSequenceClassification.from_pretrained(model_name, token=HUGGINGFACEHUB_API_TOKEN)
         st.write("Model loaded successfully.")
 
         # Log memory usage after loading
         memory = psutil.virtual_memory()
         st.write(f"Memory usage after loading model: {memory.percent}% ({memory.used / 1024**3:.2f} GB used)")
 
-        # Use the correct task for a generative model
+        # Add the task argument
         return HuggingFacePipeline.from_model_id(
             model_id=model_name,
             tokenizer=tokenizer,
             model=model,
-            task="text-generation"
+            task="text-classification"
         )
     except Exception as e:
         st.error(f"Model loading failed: {str(e)}. Please check your Hugging Face token and network connection.")
@@ -207,9 +207,7 @@ def load_model():
 llm = load_model()
 
 # Check if model loaded successfully
-if llm is not None:
-    st.success("Model loaded successfully! AI features are enabled.")
-else:
+if llm is None:
     st.warning("AI features are disabled due to model loading failure. Basic functionality is still available.")
 
 # EDA Page with Advanced Visualizations
