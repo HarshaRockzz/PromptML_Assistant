@@ -19,6 +19,7 @@ unstructured
 unstructured_inference
 libmagic
 tesseract
+streamlit-elements
 pinecone-client
 wikipedia
 # python-poppler
