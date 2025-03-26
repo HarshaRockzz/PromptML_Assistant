@@ -2,7 +2,7 @@ import os
 import pandas as pd
 import streamlit as st
 import plotly.express as px
-from dotenv import load_dotenv, find_dotenv
+from dotenv import load_dotenv
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from langchain_community.llms import HuggingFacePipeline
 from langchain_experimental.agents import create_pandas_dataframe_agent
@@ -12,140 +12,199 @@ from langchain.chains.conversation.memory import ConversationBufferWindowMemory
 from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
 from streamlit_chat import message
 from streamlit_elements import elements, mui, html, dashboard
+import streamlit.components.v1 as components
+from streamlit_option_menu import option_menu
+import plotly.graph_objects as go
+from datetime import datetime
 
 # Load environment variables
-load_dotenv(find_dotenv())
+load_dotenv()
+os.environ["HUGGINGFACEHUB_API_TOKEN"] = "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"
 
-# Set Streamlit page config
-st.set_page_config(page_title="PromptML: NextGen AI Assistant", layout="wide")
+# Custom CSS for enhanced UI
+st.markdown("""
+    <style>
+    .main {background-color: #f0f2f6;}
+    .stButton>button {background-color: #4CAF50; color: white; border-radius: 8px;}
+    .stTextInput>div>input {border-radius: 8px;}
+    .sidebar .sidebar-content {background-color: #ffffff; border-right: 1px solid #ddd;}
+    </style>
+""", unsafe_allow_html=True)
 
-# Sidebar Navigation
+# Set page config with custom icon
+st.set_page_config(
+    page_title="PromptML: NextGen AI Assistant",
+    page_icon="🤖",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Advanced Sidebar with option menu
 with st.sidebar:
-    st.header("🚀 AI Assistant Navigation")
-    page = st.radio("Choose a Section", ["📊 EDA", "🤖 Model Selection", "🔮 Predictions", "💬 AI Chatbot", "📈 Interactive Dashboard"])
-    temperature = st.slider("LLM Temperature", 0.01, 1.0, 0.1, 0.01)
-    uploaded_files = st.file_uploader("Upload Data (CSV/Excel)", type=["csv", "xlsx"], accept_multiple_files=True)
+    st.image("https://via.placeholder.com/150", caption="PromptML")
+    selected = option_menu(
+        menu_title="Navigation",
+        options=["EDA", "Model Selection", "Predictions", "AI Chatbot", "Dashboard"],
+        icons=["bar-chart", "cpu", "graph-up", "chat", "speedometer2"],
+        menu_icon="cast",
+        default_index=0,
+        styles={
+            "container": {"padding": "0!important", "background-color": "#fafafa"},
+            "icon": {"color": "#4CAF50", "font-size": "20px"},
+            "nav-link": {"font-size": "16px", "text-align": "left", "margin": "0px", "--hover-color": "#eee"},
+            "nav-link-selected": {"background-color": "#4CAF50"},
+        }
+    )
+    temperature = st.slider("AI Temperature", 0.01, 1.0, 0.1, 0.01)
+    uploaded_files = st.file_uploader("Upload Data", type=["csv", "xlsx"], accept_multiple_files=True)
 
-# Load Data
+# Load Data with Progress Bar
 if uploaded_files:
-    dfs = [pd.read_csv(file, low_memory=False) if file.name.endswith(".csv") else pd.read_excel(file) for file in uploaded_files]
-    df = pd.concat(dfs, ignore_index=True) if len(dfs) > 1 else dfs[0]
+    with st.spinner("Loading data..."):
+        progress_bar = st.progress(0)
+        dfs = []
+        for i, file in enumerate(uploaded_files):
+            dfs.append(pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file))
+            progress_bar.progress((i + 1) / len(uploaded_files))
+        df = pd.concat(dfs, ignore_index=True) if len(dfs) > 1 else dfs[0]
 else:
     df = None
 
-# Local Model Setup
-model_name = "mistralai/Mistral-7B-v0.1"
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto")
+# Model Setup with Error Handling
+@st.cache_resource
+def load_model():
+    try:
+        model_name = "mistralai/Mistral-7B-v0.1"
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto")
+        return HuggingFacePipeline.from_model_id(model_id=model_name, tokenizer=tokenizer, model=model)
+    except Exception as e:
+        st.error(f"Model loading failed: {str(e)}")
+        return None
 
-llm = HuggingFacePipeline.from_model_id(
-    model_id=model_name, tokenizer=tokenizer, model=model
-)
+llm = load_model()
 
-if page == "📊 EDA":
-    st.header("📊 Exploratory Data Analysis")
+# EDA Page with Advanced Visualizations
+if selected == "EDA":
+    st.title("📊 Exploratory Data Analysis")
     if df is not None:
         pandas_agent = create_pandas_dataframe_agent(llm, df, verbose=True, allow_dangerous_code=True)
-        tab1, tab2, tab3 = st.tabs(["Overview", "EDA Steps", "Custom Analysis"])
         
-        with tab1:
-            st.subheader("Data Preview")
-            st.dataframe(df.head())
-            st.subheader("Statistical Summary")
-            st.write(df.describe())
-            st.subheader("Distribution Plot")
-            fig = px.histogram(df, x=df.columns[0])
-            st.plotly_chart(fig)
+        # Multi-column layout
+        col1, col2 = st.columns(2)
+        with col1:
+            st.subheader("Data Overview")
+            st.dataframe(df.head(), use_container_width=True)
+            with st.expander("Statistical Summary"):
+                st.write(df.describe())
         
-        with tab2:
-            steps = llm("What are the steps of EDA")
-            st.write(steps)
-            st.write(pandas_agent.run("Summarize the dataset"))
+        with col2:
+            st.subheader("Data Health")
+            missing = df.isnull().sum()
+            fig_missing = px.pie(names=missing.index, values=missing.values, title="Missing Values")
+            st.plotly_chart(fig_missing)
         
-        with tab3:
-            user_query = st.text_input("Ask about your data:")
-            if user_query:
-                result = pandas_agent.run(user_query)
-                st.write(result)
-    else:
-        st.warning("Please upload a dataset to proceed.")
+        # Interactive Visualizations
+        st.subheader("Interactive Visualizations")
+        viz_type = st.selectbox("Chart Type", ["Histogram", "Scatter", "Box", "Correlation"])
+        column = st.selectbox("Select Column", df.columns)
+        
+        if viz_type == "Histogram":
+            fig = px.histogram(df, x=column, marginal="box")
+        elif viz_type == "Scatter":
+            y_col = st.selectbox("Y-axis", df.columns)
+            fig = px.scatter(df, x=column, y=y_col, trendline="ols")
+        elif viz_type == "Box":
+            fig = px.box(df, y=column)
+        else:
+            fig = px.imshow(df.corr(), text_auto=True)
+        st.plotly_chart(fig, use_container_width=True)
 
-elif page == "🤖 Model Selection":
-    st.header("🤖 AI-Powered Model Selection")
+# Model Selection with Advanced Features
+elif selected == "Model Selection":
+    st.title("🤖 Model Selection")
     if df is not None:
-        model_recommendation = llm("Recommend the best machine learning model for this dataset")
-        st.write(model_recommendation)
+        with st.form("model_form"):
+            problem_type = st.selectbox("Problem Type", ["Classification", "Regression", "Clustering"])
+            target = st.selectbox("Target Variable", df.columns)
+            submitted = st.form_submit_button("Get Recommendations")
+        
+        if submitted:
+            with st.spinner("Analyzing..."):
+                recommendation = llm(f"Recommend top 3 ML models for {problem_type} with target {target}")
+                st.success(recommendation)
+                st.balloons()
     else:
-        st.warning("Please upload a dataset to get model recommendations.")
+        st.warning("Upload a dataset first!")
 
-elif page == "🔮 Predictions":
-    st.header("🔮 AI Predictions")
-    st.write("Upload test data and receive real-time AI predictions.")
+# Predictions with Real-time Updates
+elif selected == "Predictions":
+    st.title("🔮 Predictions")
     if df is not None:
-        user_query = st.text_input("Describe your prediction task:")
-        if user_query:
-            prediction = llm(f"Based on the dataset, make predictions for: {user_query}")
-            st.write(prediction)
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            model_choice = st.selectbox("Select Model", ["Random Forest", "XGBoost", "Neural Network"])
+            predict_button = st.button("Predict")
+        
+        with col2:
+            if predict_button:
+                with st.spinner("Generating predictions..."):
+                    predictions = llm(f"Predict {model_choice} outcomes for the dataset")
+                    st.write(predictions)
+                    fig = go.Figure(data=go.Scatter(y=[float(x) for x in predictions.split() if x.isdigit()]))
+                    st.plotly_chart(fig)
     else:
-        st.warning("Please upload a dataset first.")
+        st.warning("Upload a dataset first!")
 
-elif page == "💬 AI Chatbot":
-    st.header("💬 Conversational AI Chatbot")
-    if 'responses' not in st.session_state:
-        st.session_state['responses'] = ["Hello! How can I assist you?"]
-    if 'requests' not in st.session_state:
-        st.session_state['requests'] = []
-    
+# Enhanced Chatbot with Rich UI
+elif selected == "AI Chatbot":
+    st.title("💬 AI Chatbot")
     chat_llm = HuggingFaceEndpoint(
         repo_id="HuggingFaceH4/zephyr-7b-beta",
         task="text-generation",
         max_new_tokens=512,
-        do_sample=False,
         temperature=temperature
     )
     chat_model = ChatHuggingFace(llm=chat_llm)
     
-    if 'buffer_memory' not in st.session_state:
-        st.session_state.buffer_memory = ConversationBufferWindowMemory(k=3, return_messages=True)
+    if 'chat_history' not in st.session_state:
+        st.session_state.chat_history = []
     
-    sys_msg_template = SystemMessagePromptTemplate.from_template(
-        template="Answer truthfully using provided context. If unsure, say 'I don’t know'."
-    )
-    human_msg_temp = HumanMessagePromptTemplate.from_template(template="{input}")
-    prompt_template = ChatPromptTemplate.from_messages(
-        [sys_msg_template, MessagesPlaceholder(variable_name="history"), human_msg_temp]
-    )
-    conversation = ConversationChain(
-        memory=st.session_state.buffer_memory, prompt=prompt_template, llm=chat_llm, verbose=True
-    )
+    # Chat container
+    chat_container = st.container()
+    with chat_container:
+        for chat in st.session_state.chat_history:
+            message(chat["content"], is_user=chat["is_user"], avatar_style="bottts" if not chat["is_user"] else "adventurer")
     
-    query = st.text_input("Your question:", key="chat_input")
-    if query:
-        with st.spinner("Thinking..."):
-            response = conversation.predict(input=query)
-            st.session_state.requests.append(query)
-            st.session_state.responses.append(response)
+    # Input form
+    with st.form("chat_form", clear_on_submit=True):
+        query = st.text_area("Ask me anything:", height=100)
+        submit = st.form_submit_button("Send")
     
-    for i in range(len(st.session_state['responses'])):
-        message(st.session_state['responses'][i], key=str(i))
-        if i < len(st.session_state['requests']):
-            message(st.session_state["requests"][i], is_user=True, key=str(i) + '_user')
+    if submit and query:
+        with st.spinner("Responding..."):
+            response = chat_model.predict(query)
+            st.session_state.chat_history.append({"content": query, "is_user": True})
+            st.session_state.chat_history.append({"content": response, "is_user": False})
+            st.rerun()
 
-elif page == "📈 Interactive Dashboard":
-    st.header("📈 Interactive Data Dashboard")
+# Advanced Dashboard
+elif selected == "Dashboard":
+    st.title("📈 Interactive Dashboard")
     if df is not None:
-        with elements("dashboard"):
-            mui.Typography("Dynamic Dashboard", variant="h4")
-            with mui.Grid(container=True, spacing=2):
-                with mui.Grid(item=True, xs=6):
-                    mui.Paper(
-                        mui.Typography("Data Summary", variant="h6"),
-                        html.div(str(df.describe().to_html()), style={"overflow": "auto", "maxHeight": "300px"})
+        with elements("advanced_dashboard"):
+            with mui.Stack(spacing=2):
+                mui.Card(
+                    mui.CardContent(
+                        mui.Typography("Dataset Metrics", variant="h5"),
+                        html.div(f"Rows: {df.shape[0]}, Columns: {df.shape[1]}")
                     )
-                with mui.Grid(item=True, xs=6):
-                    mui.Paper(
-                        mui.Typography("Column Names", variant="h6"),
-                        html.ul([html.li(col) for col in df.columns])
+                )
+                mui.Card(
+                    mui.CardContent(
+                        mui.Typography("Real-time Insights", variant="h5"),
+                        html.div(f"Last Updated: {datetime.now().strftime('%H:%M:%S')}")
                     )
+                )
     else:
-        st.warning("Please upload a dataset to view the dashboard.")
+        st.warning("Upload a dataset to view dashboard!")
