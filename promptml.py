@@ -3,7 +3,7 @@ import pandas as pd
 import streamlit as st
 import plotly.express as px
 from dotenv import load_dotenv
-from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline, Pipeline
+from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 from langchain_community.llms import HuggingFacePipeline
 from langchain_experimental.agents import create_pandas_dataframe_agent
 from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
@@ -81,7 +81,7 @@ def load_generative_model():
         model = AutoModelForCausalLM.from_pretrained(model_name, token=HUGGINGFACEHUB_API_TOKEN)
         st.write("Model loaded successfully.")
         
-        pipeline_instance = Pipeline(
+        pipeline_instance = pipeline(
             task="text-generation",
             model=model,
             tokenizer=tokenizer
