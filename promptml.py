@@ -177,32 +177,28 @@ else:
 @st.cache_resource
 def load_model():
     try:
-        # Log memory usage before loading
+        import psutil
         memory = psutil.virtual_memory()
         st.write(f"Memory usage before loading model: {memory.percent}% ({memory.used / 1024**3:.2f} GB used)")
 
-        # Use a smaller, compatible model
-        model_name = "distilbert-base-uncased"
-        st.write(f"Attempting to load model: {model_name}")
-        tokenizer = AutoTokenizer.from_pretrained(model_name, token=HUGGINGFACEHUB_API_TOKEN)
-        st.write("Tokenizer loaded successfully.")
-        model = AutoModelForSequenceClassification.from_pretrained(model_name, token=HUGGINGFACEHUB_API_TOKEN)
-        st.write("Model loaded successfully.")
+        model_name = "distilbert-base-uncased-finetuned-sst-2-english"
+        st.write(f"Loading model: {model_name}")
 
-        # Log memory usage after loading
+        tokenizer = AutoTokenizer.from_pretrained(model_name, token=HUGGINGFACEHUB_API_TOKEN)
+        model = AutoModelForSequenceClassification.from_pretrained(model_name, token=HUGGINGFACEHUB_API_TOKEN)
+
         memory = psutil.virtual_memory()
         st.write(f"Memory usage after loading model: {memory.percent}% ({memory.used / 1024**3:.2f} GB used)")
 
-        # Add the task argument
         return HuggingFacePipeline.from_model_id(
             model_id=model_name,
             tokenizer=tokenizer,
-            model=model,
-            task="text-classification"
+            model=model
         )
     except Exception as e:
         st.error(f"Model loading failed: {str(e)}. Please check your Hugging Face token and network connection.")
         return None
+
 
 llm = load_model()
 
