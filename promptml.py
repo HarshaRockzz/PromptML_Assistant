@@ -77,7 +77,6 @@ def load_generative_model():
         model_name = "distilgpt2"
         st.write(f"Attempting to load model: {model_name}")
         tokenizer = AutoTokenizer.from_pretrained(model_name, token=HUGGINGFACEHUB_API_TOKEN)
-        tokenizer.pad_token_id = tokenizer.eos_token_id  # Suppress padding warning
         st.write("Tokenizer loaded successfully.")
         model = AutoModelForCausalLM.from_pretrained(model_name, token=HUGGINGFACEHUB_API_TOKEN)
         st.write("Model loaded successfully.")
@@ -154,7 +153,7 @@ elif selected == "Model Selection":
         
         if submitted:
             if llm:
-                recommendation = llm.invoke(f"Recommend top 3 ML models for {problem_type} with target {target}")
+                recommendation = llm(f"Recommend top 3 ML models for {problem_type} with target {target}")
                 st.success(recommendation)
             if train_model and problem_type == "Classification":
                 with st.spinner("Training model..."):
