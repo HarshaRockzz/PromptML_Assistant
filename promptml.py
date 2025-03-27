@@ -3,34 +3,25 @@ import pandas as pd
 import streamlit as st
 import plotly.express as px
 from dotenv import load_dotenv
-try:
-    from transformers import AutoModelForSequenceClassification, AutoTokenizer
-except ImportError as e:
-    # We'll display the error after setting page config
-    transformers_import_error = str(e)
-    transformers_import_success = False
-else:
-    transformers_import_success = True
-    transformers_import_error = None
+from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 from langchain_community.llms import HuggingFacePipeline
 from langchain_experimental.agents import create_pandas_dataframe_agent
-from langchain.chains import ConversationChain
-from langchain.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder
-from langchain.chains.conversation.memory import ConversationBufferWindowMemory
 from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
+from langchain.chains.conversation.memory import ConversationBufferWindowMemory
 from streamlit_chat import message
-from streamlit_elements import elements, mui, html, dashboard
-import streamlit.components.v1 as components
-from streamlit_option_menu import option_menu
 import plotly.graph_objects as go
 from datetime import datetime
-import psutil  # For monitoring memory usage
+import psutil
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score
+import json
 
 # Load environment variables
 load_dotenv()
 HUGGINGFACEHUB_API_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN")
 
-# Set page config with custom icon (MUST BE FIRST STREAMLIT COMMAND)
+# Set page config
 st.set_page_config(
     page_title="PromptML: NextGen AI Assistant",
     page_icon="🤖",
@@ -38,200 +29,94 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Now we can use Streamlit commands to display import status and token validation
-if transformers_import_success:
-    st.write("Successfully imported transformers!")
-else:
-    st.error(f"Failed to import transformers: {transformers_import_error}")
-    raise ImportError(transformers_import_error)
-
+# Validate imports and token
 if not HUGGINGFACEHUB_API_TOKEN:
     st.error("HUGGINGFACEHUB_API_TOKEN not found in .env file. Please set it and restart the app.")
+    st.stop()
 
-# Advanced Sidebar with option menu and theme toggle
+# Advanced Sidebar
 with st.sidebar:
     st.image("https://via.placeholder.com/150", caption="PromptML")
     theme = st.toggle("Dark Mode", value=False)
-    
-    selected = option_menu(
-        menu_title="Navigation",
-        options=["EDA", "Model Selection", "Predictions", "AI Chatbot", "Dashboard"],
-        icons=["bar-chart", "cpu", "graph-up", "chat", "speedometer2"],
-        menu_icon="cast",
-        default_index=0,
-        styles={
-            "container": {"padding": "10px", "background-color": "#e0e0e0" if not theme else "#2a2a2a"},
-            "icon": {"color": "#0288d1", "font-size": "22px"},
-            "nav-link": {"font-size": "18px", "text-align": "left", "margin": "5px", "--hover-color": "#b0bec5", "color": "#212121" if not theme else "#e0e0e0"},
-            "nav-link-selected": {"background-color": "#0288d1", "color": "white"},
-        }
+    selected = st.sidebar.selectbox(
+        "Navigation", ["EDA", "Model Selection", "Predictions", "AI Chatbot", "Dashboard"], index=0
     )
     temperature = st.slider("AI Temperature", 0.01, 1.0, 0.1, 0.01)
     uploaded_files = st.file_uploader("Upload Data", type=["csv", "xlsx"], accept_multiple_files=True)
+    st.button("Refresh Data", key="refresh")
 
-# Custom CSS for enhanced UI with improved colors
+# Custom CSS
 st.markdown("""
     <style>
-    /* Light Mode */
-    .main {
-        background-color: #f5f5f5;
-        color: #212121;
-    }
-    .stButton>button {
-        background-color: #0288d1;
-        color: white;
-        border-radius: 12px;
-        padding: 10px 20px;
-        border: none;
-    }
-    .stButton>button:hover {
-        background-color: #0277bd;
-    }
-    .stTextInput>div>input {
-        border-radius: 12px;
-        padding: 8px;
-        border: 1px solid #0288d1;
-        background-color: #ffffff;
-        color: #212121;
-    }
-    .sidebar .sidebar-content {
-        background-color: #e0e0e0;
-        border-right: 2px solid #b0bec5;
-        padding: 20px;
-    }
-    .stSlider > div > div > div {
-        background-color: #0288d1;
-    }
-    .stAlert {
-        background-color: #ffebee !important;
-        color: #d32f2f !important;
-        border: 1px solid #d32f2f;
-        border-radius: 8px;
-    }
-    .stWarning {
-        background-color: #fff3e0 !important;
-        color: #f57c00 !important;
-        border: 1px solid #f57c00;
-        border-radius: 8px;
-    }
-    .stSuccess {
-        background-color: #e8f5e9 !important;
-        color: #2e7d32 !important;
-        border: 1px solid #2e7d32;
-        border-radius: 8px;
-    }
-    h1, h2, h3, h4, h5, h6 {
-        color: #0288d1;
-    }
+    .main { background-color: #f5f5f5; color: #212121; }
+    .stButton>button { background-color: #0288d1; color: white; border-radius: 12px; padding: 10px 20px; }
+    .stTextInput>div>input { border-radius: 12px; padding: 8px; border: 1px solid #0288d1; background-color: #ffffff; }
     </style>
 """, unsafe_allow_html=True)
-
-# Apply dark mode styles if toggled
 if theme:
     st.markdown("""
         <style>
-        .main {
-            background-color: #212121;
-            color: #e0e0e0;
-        }
-        .stTextInput>div>input {
-            background-color: #424242;
-            color: #e0e0e0;
-            border: 1px solid #0288d1;
-        }
-        .stAlert {
-            background-color: #d32f2f !important;
-            color: #ffffff !important;
-            border: 1px solid #b71c1c;
-        }
-        .stWarning {
-            background-color: #ff9800 !important;
-            color: #ffffff !important;
-            border: 1px solid #f57c00;
-        }
-        .stSuccess {
-            background-color: #4caf50 !important;
-            color: #ffffff !important;
-            border: 1px solid #388e3c;
-        }
-        h1, h2, h3, h4, h5, h6 {
-            color: #4fc3f7;
-        }
+        .main { background-color: #212121; color: #e0e0e0; }
+        .stTextInput>div>input { background-color: #424242; color: #e0e0e0; }
         </style>
     """, unsafe_allow_html=True)
 
-# Load Data with Progress Bar and Animation
+# Load Data
 if uploaded_files:
     with st.spinner("Loading data..."):
-        progress_bar = st.progress(0)
-        dfs = []
-        for i, file in enumerate(uploaded_files):
-            dfs.append(pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file))
-            progress_bar.progress((i + 1) / len(uploaded_files))
+        dfs = [pd.read_csv(f) if f.name.endswith(".csv") else pd.read_excel(f) for f in uploaded_files]
         df = pd.concat(dfs, ignore_index=True) if len(dfs) > 1 else dfs[0]
         st.success("Data loaded successfully!")
 else:
     df = None
 
-# Model Setup with Error Handling
+# Model Setup
 @st.cache_resource
-def load_model():
+def load_generative_model():
     try:
-        import psutil
-        memory = psutil.virtual_memory()
-        st.write(f"Memory usage before loading model: {memory.percent}% ({memory.used / 1024**3:.2f} GB used)")
-
-        model_name = "distilbert-base-uncased-finetuned-sst-2-english"
-        st.write(f"Loading model: {model_name}")
-
+        model_name = "distilgpt2"
         tokenizer = AutoTokenizer.from_pretrained(model_name, token=HUGGINGFACEHUB_API_TOKEN)
-        model = AutoModelForSequenceClassification.from_pretrained(model_name, token=HUGGINGFACEHUB_API_TOKEN)
-
-        memory = psutil.virtual_memory()
-        st.write(f"Memory usage after loading model: {memory.percent}% ({memory.used / 1024**3:.2f} GB used)")
-
-        # Add the required 'task' argument
+        model = AutoModelForCausalLM.from_pretrained(model_name, token=HUGGINGFACEHUB_API_TOKEN)
         return HuggingFacePipeline.from_model_id(
             model_id=model_name,
             tokenizer=tokenizer,
             model=model,
-            task="text-classification"  # Fix: Explicitly specify task
+            task="text-generation"
         )
     except Exception as e:
-        st.error(f"Model loading failed: {str(e)}. Please check your Hugging Face token and network connection.")
+        st.error(f"Generative model loading failed: {str(e)}")
         return None
 
+@st.cache_resource
+def load_classification_pipeline():
+    try:
+        model_name = "distilbert-base-uncased"
+        return pipeline("text-classification", model=model_name, tokenizer=model_name, token=HUGGINGFACEHUB_API_TOKEN)
+    except Exception as e:
+        st.error(f"Classification pipeline loading failed: {str(e)}")
+        return None
 
+llm = load_generative_model()
+classifier = load_classification_pipeline()
 
-llm = load_model()
-
-# Check if model loaded successfully
-if llm is None:
-    st.warning("AI features are disabled due to model loading failure. Basic functionality is still available.")
-
-# EDA Page with Advanced Visualizations
+# EDA Page
 if selected == "EDA":
     st.title("📊 Exploratory Data Analysis")
     if df is not None:
-        if llm is not None:
-            pandas_agent = create_pandas_dataframe_agent(llm, df, verbose=True, allow_dangerous_code=True)
-        else:
-            st.warning("EDA agent is disabled due to model loading failure.")
-        
-        # Multi-column layout with tabs
+        pandas_agent = create_pandas_dataframe_agent(llm, df, verbose=True, allow_dangerous_code=True) if llm else None
         tab1, tab2, tab3 = st.tabs(["Overview", "Health", "Visualizations"])
         
         with tab1:
             st.subheader("Data Overview")
-            st.dataframe(df.head(), use_container_width=True, height=300)
-            with st.expander("Statistical Summary", expanded=False):
+            st.dataframe(df.head(), use_container_width=True)
+            with st.expander("Statistical Summary"):
                 st.write(df.describe())
         
         with tab2:
             st.subheader("Data Health")
             missing = df.isnull().sum()
             fig_missing = px.pie(names=missing.index, values=missing.values, title="Missing Values", hole=0.3)
-            st.plotly_chart(fig_missing, use_container_width=True)
+            st.plotly_chart(fig_missing)
         
         with tab3:
             st.subheader("Interactive Visualizations")
@@ -241,64 +126,73 @@ if selected == "EDA":
                 column = st.selectbox("Select Column", df.columns)
             with col2:
                 if viz_type == "Histogram":
-                    fig = px.histogram(df, x=column, marginal="box", color_discrete_sequence=["#0288d1"])
+                    fig = px.histogram(df, x=column)
                 elif viz_type == "Scatter":
                     y_col = st.selectbox("Y-axis", df.columns)
-                    fig = px.scatter(df, x=column, y=y_col, trendline="ols", color_discrete_sequence=["#0288d1"])
+                    fig = px.scatter(df, x=column, y=y_col, trendline="ols")
                 elif viz_type == "Box":
-                    fig = px.box(df, y=column, color_discrete_sequence=["#0288d1"])
+                    fig = px.box(df, y=column)
                 else:
-                    fig = px.imshow(df.corr(), text_auto=True, color_continuous_scale="Viridis")
-                st.plotly_chart(fig, use_container_width=True)
+                    fig = px.imshow(df.corr(), text_auto=True)
+                st.plotly_chart(fig)
 
-# Model Selection with Advanced Features
+# Model Selection with Training
 elif selected == "Model Selection":
-    st.title("🤖 Model Selection")
+    st.title("🤖 Model Selection & Training")
     if df is not None:
         with st.form("model_form"):
-            problem_type = st.selectbox("Problem Type", ["Classification", "Regression", "Clustering"])
+            problem_type = st.selectbox("Problem Type", ["Classification", "Regression"])
             target = st.selectbox("Target Variable", df.columns)
-            submitted = st.form_submit_button("Get Recommendations")
+            train_model = st.checkbox("Train a Model")
+            submitted = st.form_submit_button("Analyze")
         
         if submitted:
-            if llm is not None:
-                with st.spinner("Analyzing..."):
-                    recommendation = llm(f"Recommend top 3 ML models for {problem_type} with target {target}")
-                    st.success(recommendation)
-                    st.balloons()
-                    st.download_button("Download Recommendations", recommendation, "recommendations.txt")
-            else:
-                st.error("Cannot generate recommendations because the AI model failed to load.")
+            if llm:
+                recommendation = llm(f"Recommend top 3 ML models for {problem_type} with target {target}")
+                st.success(recommendation)
+            if train_model and problem_type == "Classification":
+                with st.spinner("Training model..."):
+                    X = df.drop(columns=[target]).select_dtypes(include=['float64', 'int64'])
+                    y = df[target]
+                    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+                    model = RandomForestClassifier(n_estimators=100)
+                    model.fit(X_train, y_train)
+                    accuracy = accuracy_score(y_test, model.predict(X_test))
+                    st.success(f"Model trained! Accuracy: {accuracy:.2f}")
+                    st.session_state['trained_model'] = model
     else:
         st.warning("Upload a dataset first!")
 
-# Predictions with Real-time Updates
+# Predictions
 elif selected == "Predictions":
     st.title("🔮 Predictions")
     if df is not None:
         col1, col2 = st.columns([1, 2])
         with col1:
-            model_choice = st.selectbox("Select Model", ["Random Forest", "XGBoost", "Neural Network"])
+            model_choice = st.selectbox("Select Model", ["Trained Model", "Pre-trained Classifier"])
             predict_button = st.button("Predict")
         
         with col2:
             if predict_button:
-                if llm is not None:
-                    with st.spinner("Generating predictions..."):
-                        predictions = llm(f"Predict {model_choice} outcomes for the dataset")
-                        st.write(predictions)
-                        fig = go.Figure(data=go.Scatter(y=[float(x) for x in predictions.split() if x.replace('.', '', 1).isdigit()],
-                                                        mode="lines+markers", line=dict(color="#0288d1")))
-                        st.plotly_chart(fig, use_container_width=True)
+                if model_choice == "Trained Model" and 'trained_model' in st.session_state:
+                    X = df.select_dtypes(include=['float64', 'int64'])
+                    predictions = st.session_state['trained_model'].predict(X)
+                    st.write("Predictions:", predictions)
+                    fig = go.Figure(data=go.Scatter(y=predictions, mode="lines+markers"))
+                    st.plotly_chart(fig)
+                elif model_choice == "Pre-trained Classifier" and classifier:
+                    text_col = st.selectbox("Select Text Column", df.columns)
+                    predictions = [classifier(text)[0]['label'] for text in df[text_col].head(10)]
+                    st.write("Predictions (Top 10):", predictions)
                 else:
-                    st.error("Cannot generate predictions because the AI model failed to load.")
+                    st.error("No suitable model available.")
     else:
         st.warning("Upload a dataset first!")
 
-# Enhanced Chatbot with Rich UI
+# AI Chatbot with Memory
 elif selected == "AI Chatbot":
     st.title("💬 AI Chatbot")
-    if llm is not None:
+    if llm:
         chat_llm = HuggingFaceEndpoint(
             repo_id="HuggingFaceH4/zephyr-7b-beta",
             task="text-generation",
@@ -307,72 +201,56 @@ elif selected == "AI Chatbot":
             huggingfacehub_api_token=HUGGINGFACEHUB_API_TOKEN
         )
         chat_model = ChatHuggingFace(llm=chat_llm)
-    else:
-        st.warning("Chatbot is disabled due to model loading failure.")
-    
-    if 'chat_history' not in st.session_state:
-        st.session_state.chat_history = []
-    
-    # Chat container with scroll
-    chat_container = st.container(height=400)
-    with chat_container:
-        for chat in st.session_state.chat_history:
-            message(chat["content"], is_user=chat["is_user"], avatar_style="bottts" if not chat["is_user"] else "adventurer")
-    
-    # Input form with advanced features
-    with st.form("chat_form", clear_on_submit=True):
-        col1, col2 = st.columns([5, 1])
-        with col1:
-            query = st.text_area("Ask me anything:", height=100, placeholder="Type your question here...")
-        with col2:
-            submit = st.form_submit_button("Send")
-            clear = st.form_submit_button("Clear Chat")
+        memory = ConversationBufferWindowMemory(k=5)
         
-        if clear:
+        if 'chat_history' not in st.session_state:
             st.session_state.chat_history = []
-            st.rerun()
-    
-    if submit and query:
-        if llm is not None:
-            with st.spinner("Responding..."):
+        
+        chat_container = st.container(height=400)
+        with chat_container:
+            for chat in st.session_state.chat_history:
+                message(chat["content"], is_user=chat["is_user"])
+        
+        with st.form("chat_form", clear_on_submit=True):
+            query = st.text_area("Ask me anything:", height=100)
+            submit, clear, export = st.columns(3)
+            with submit:
+                st.form_submit_button("Send")
+            with clear:
+                st.form_submit_button("Clear Chat")
+            with export:
+                st.form_submit_button("Export Chat")
+            
+            if submit and query:
                 response = chat_model.predict(query)
                 st.session_state.chat_history.append({"content": query, "is_user": True})
                 st.session_state.chat_history.append({"content": response, "is_user": False})
+                memory.save_context({"input": query}, {"output": response})
                 st.rerun()
-        else:
-            st.error("Cannot respond because the AI model failed to load.")
+            if clear:
+                st.session_state.chat_history = []
+                memory.clear()
+                st.rerun()
+            if export:
+                chat_json = json.dumps(st.session_state.chat_history)
+                st.download_button("Download Chat", chat_json, "chat_history.json")
+    else:
+        st.warning("Chatbot disabled due to model loading failure.")
 
-# Advanced Dashboard
+# Dashboard with Real-time Metrics
 elif selected == "Dashboard":
     st.title("📈 Interactive Dashboard")
     if df is not None:
-        with elements("advanced_dashboard"):
-            layout = [
-                dashboard.Item("metrics", 0, 0, 2, 1),
-                dashboard.Item("insights", 2, 0, 2, 1),
-                dashboard.Item("plot", 0, 1, 4, 2),
-            ]
-            with dashboard.Grid(layout):
-                mui.Card(
-                    mui.CardContent(
-                        mui.Typography("Dataset Metrics", variant="h5"),
-                        html.div(f"Rows: {df.shape[0]}, Columns: {df.shape[1]}")
-                    ),
-                    key="metrics"
-                )
-                mui.Card(
-                    mui.CardContent(
-                        mui.Typography("Real-time Insights", variant="h5"),
-                        html.div(f"Last Updated: {datetime.now().strftime('%H:%M:%S')}")
-                    ),
-                    key="insights"
-                )
-                mui.Card(
-                    mui.CardContent(
-                        mui.Typography("Data Trend", variant="h5"),
-                        components.html(px.line(df.select_dtypes(include=['float64', 'int64'])).to_html(), height=300)
-                    ),
-                    key="plot"
-                )
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Rows", df.shape[0])
+            st.metric("Columns", df.shape[1])
+        with col2:
+            memory = psutil.virtual_memory()
+            st.metric("Memory Usage", f"{memory.percent}%")
+            st.metric("Last Updated", datetime.now().strftime('%H:%M:%S'))
+        
+        fig = px.line(df.select_dtypes(include=['float64', 'int64']))
+        st.plotly_chart(fig, use_container_width=True)
     else:
         st.warning("Upload a dataset to view dashboard!")
