@@ -3,7 +3,7 @@ import pandas as pd
 import streamlit as st
 import plotly.express as px
 from dotenv import load_dotenv
-from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
+from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline, Pipeline
 from langchain_community.llms import HuggingFacePipeline
 from langchain_experimental.agents import create_pandas_dataframe_agent
 from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
@@ -75,14 +75,19 @@ else:
 def load_generative_model():
     try:
         model_name = "distilgpt2"
+        st.write(f"Attempting to load model: {model_name}")
         tokenizer = AutoTokenizer.from_pretrained(model_name, token=HUGGINGFACEHUB_API_TOKEN)
+        st.write("Tokenizer loaded successfully.")
         model = AutoModelForCausalLM.from_pretrained(model_name, token=HUGGINGFACEHUB_API_TOKEN)
-        return HuggingFacePipeline.from_model_id(
-            model_id=model_name,
-            tokenizer=tokenizer,
+        st.write("Model loaded successfully.")
+        
+        pipeline_instance = Pipeline(
+            task="text-generation",
             model=model,
-            task="text-generation"
+            tokenizer=tokenizer
         )
+        
+        return HuggingFacePipeline(pipeline=pipeline_instance)
     except Exception as e:
         st.error(f"Generative model loading failed: {str(e)}")
         return None
