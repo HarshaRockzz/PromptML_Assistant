@@ -6,14 +6,12 @@ from dotenv import load_dotenv
 try:
     from transformers import AutoModelForSequenceClassification, AutoTokenizer
 except ImportError as e:
-    # We'll display the error after setting page config
     transformers_import_error = str(e)
     transformers_import_success = False
 else:
     transformers_import_success = True
     transformers_import_error = None
 from langchain_community.llms import HuggingFacePipeline
-from langchain_experimental.agents import create_pandas_dataframe_agent
 from langchain.chains import ConversationChain
 from langchain.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder
 from langchain.chains.conversation.memory import ConversationBufferWindowMemory
@@ -38,7 +36,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Now we can use Streamlit commands to display import status and token validation
+# Display import status and token validation
 if transformers_import_success:
     st.write("Successfully imported transformers!")
 else:
@@ -190,18 +188,20 @@ def load_model():
         memory = psutil.virtual_memory()
         st.write(f"Memory usage after loading model: {memory.percent}% ({memory.used / 1024**3:.2f} GB used)")
 
-        # Add the required 'task' argument
-        return HuggingFacePipeline.from_model_id(
-            model_id=model_name,
-            tokenizer=tokenizer,
-            model=model,
-            task="text-classification"  # Fix: Explicitly specify task
-        )
+        # Return model and tokenizer as a dictionary
+        return {"model": model, "tokenizer": tokenizer}
     except Exception as e:
         st.error(f"Model loading failed: {str(e)}. Please check your Hugging Face token and network connection.")
         return None
 
-
+# Custom function for text classification
+def classify_text(model_dict, text):
+    inputs = model_dict["tokenizer"](text, return_tensors="pt", truncation=True, padding=True)
+    outputs = model_dict["model"](**inputs)
+    logits = outputs.logits
+    probabilities = logits.softmax(dim=-1)
+    prediction = probabilities.argmax(dim=-1).item()
+    return "Positive" if prediction == 1 else "Negative"
 
 llm = load_model()
 
@@ -213,10 +213,9 @@ if llm is None:
 if selected == "EDA":
     st.title("📊 Exploratory Data Analysis")
     if df is not None:
-        if llm is not None:
-            pandas_agent = create_pandas_dataframe_agent(llm, df, verbose=True, allow_dangerous_code=True)
-        else:
-            st.warning("EDA agent is disabled due to model loading failure.")
+        # Removed pandas_agent since it requires a text generation LLM
+        if llm is None:
+            st.warning("Advanced AI features are disabled due to model loading failure.")
         
         # Multi-column layout with tabs
         tab1, tab2, tab3 = st.tabs(["Overview", "Health", "Visualizations"])
@@ -263,7 +262,8 @@ elif selected == "Model Selection":
         if submitted:
             if llm is not None:
                 with st.spinner("Analyzing..."):
-                    recommendation = llm(f"Recommend top 3 ML models for {problem_type} with target {target}")
+                    # Static recommendation since llm is a classification model
+                    recommendation = f"For {problem_type} with target '{target}', top 3 ML models are:\n1. Random Forest\n2. XGBoost\n3. Neural Network"
                     st.success(recommendation)
                     st.balloons()
                     st.download_button("Download Recommendations", recommendation, "recommendations.txt")
@@ -278,17 +278,19 @@ elif selected == "Predictions":
     if df is not None:
         col1, col2 = st.columns([1, 2])
         with col1:
-            model_choice = st.selectbox("Select Model", ["Random Forest", "XGBoost", "Neural Network"])
+            model_choice = st.selectbox("Select Model", ["DistilBERT (Sentiment)"])  # Limited to loaded model
+            text_input = st.text_input("Enter text to classify", "This is a great app!")
             predict_button = st.button("Predict")
         
         with col2:
             if predict_button:
                 if llm is not None:
                     with st.spinner("Generating predictions..."):
-                        predictions = llm(f"Predict {model_choice} outcomes for the dataset")
-                        st.write(predictions)
-                        fig = go.Figure(data=go.Scatter(y=[float(x) for x in predictions.split() if x.replace('.', '', 1).isdigit()],
-                                                        mode="lines+markers", line=dict(color="#0288d1")))
+                        prediction = classify_text(llm, text_input)
+                        st.write(f"Prediction: {prediction}")
+                        # Simple bar chart for visualization
+                        fig = go.Figure(data=go.Bar(x=["Prediction"], y=[1 if prediction == "Positive" else 0], 
+                                                    marker_color="#0288d1"))
                         st.plotly_chart(fig, use_container_width=True)
                 else:
                     st.error("Cannot generate predictions because the AI model failed to load.")
