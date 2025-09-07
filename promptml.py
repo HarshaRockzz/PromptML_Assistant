@@ -1781,21 +1781,53 @@ if selected == "💬 AI Chatbot":
         </div>
     """, unsafe_allow_html=True)
     
+    # Chat settings - moved up to define variables before use
+    st.markdown("### ⚙️ Settings")
+    col1, col2 = st.columns(2)
+    with col1:
+        auto_scroll = st.checkbox("Auto Scroll", value=True)
+        show_timestamps = st.checkbox("Show Timestamps", value=False)
+    with col2:
+        model_choice = st.selectbox("🚀 Model Speed", ["Fast (DialoGPT)", "Balanced (Zephyr)"], index=0)
+        temperature = st.slider("🎛️ Creativity", 0.1, 1.0, 0.7, 0.1)
+    
+    st.markdown("---")
+    
     if llm is not None:
-        chat_llm = HuggingFaceEndpoint(
-            repo_id="HuggingFaceH4/zephyr-7b-beta",
-            task="text-generation",
-            max_new_tokens=512,
-            temperature=temperature,
-            huggingfacehub_api_token=HUGGINGFACEHUB_API_TOKEN
-        )
-        chat_model = ChatHuggingFace(llm=chat_llm)
+        try:
+            # Select model based on user choice
+            if model_choice == "Fast (DialoGPT)":
+                chat_llm = HuggingFaceEndpoint(
+                    repo_id="microsoft/DialoGPT-medium",  # Faster, lighter model
+                    task="text-generation",
+                    max_new_tokens=128,  # Very fast responses
+                    temperature=temperature,
+                    do_sample=True,
+                    top_p=0.9,
+                    repetition_penalty=1.1,
+                    huggingfacehub_api_token=HUGGINGFACEHUB_API_TOKEN
+                )
+            else:  # Balanced (Zephyr)
+                chat_llm = HuggingFaceEndpoint(
+                    repo_id="HuggingFaceH4/zephyr-7b-beta",
+                    task="text-generation",
+                    max_new_tokens=256,
+                    temperature=temperature,
+                    huggingfacehub_api_token=HUGGINGFACEHUB_API_TOKEN
+                )
+            chat_model = ChatHuggingFace(llm=chat_llm)
+        except Exception as e:
+            st.error(f"❌ Failed to load chat model: {str(e)}")
+            st.info("💡 Try switching to a different model or check your API token")
+            chat_model = None
     else:
         st.warning("🤖 Chatbot is disabled due to model loading failure.")
     
-    # Initialize chat history
+    # Initialize chat history and response cache
     if 'chat_history' not in st.session_state:
         st.session_state.chat_history = []
+    if 'response_cache' not in st.session_state:
+        st.session_state.response_cache = {}
     
     # Chat interface
     col1, col2 = st.columns([3, 1])
@@ -1881,17 +1913,19 @@ if selected == "💬 AI Chatbot":
         
         st.markdown("---")
         
-        # Chat settings
-        st.markdown("### ⚙️ Settings")
-        auto_scroll = st.checkbox("Auto Scroll", value=True)
-        show_timestamps = st.checkbox("Show Timestamps", value=False)
+        # Settings moved to top of page
         
-        st.markdown("---")
-        
-        # Clear chat
-        if st.button("🗑️ Clear Chat", width='stretch'):
-            st.session_state.chat_history = []
-            st.rerun()
+        # Clear chat and cache
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🗑️ Clear Chat", width='stretch'):
+                st.session_state.chat_history = []
+                st.rerun()
+        with col2:
+            if st.button("⚡ Clear Cache", width='stretch'):
+                st.session_state.response_cache = {}
+                st.success("Cache cleared!")
+                st.rerun()
     
     # Input form
     st.markdown("""
@@ -1922,17 +1956,48 @@ if selected == "💬 AI Chatbot":
                     "timestamp": datetime.now().strftime("%H:%M:%S")
                 })
                 
-                # Generate AI response
+                # Generate AI response with typing indicator and caching
                 try:
-                    response = chat_model.invoke(query)
+                    if chat_model is None:
+                        # Fallback response if model failed to load
+                        response_text = "I'm sorry, but I'm having trouble connecting to the AI model. Please check your API token or try switching models."
+                    else:
+                        # Check cache first for faster responses
+                        cache_key = f"{query.lower().strip()}_{model_choice}_{temperature}"
+                        if cache_key in st.session_state.response_cache:
+                            response_text = st.session_state.response_cache[cache_key]
+                            st.success("⚡ Fast response from cache!")
+                        else:
+                            # Show typing indicator
+                            with st.spinner("🤖 AI is thinking..."):
+                                response = chat_model.invoke(query)
+                            
+                            # Extract text content from response object
+                            if hasattr(response, 'content'):
+                                response_text = response.content
+                            elif isinstance(response, str):
+                                response_text = response
+                            else:
+                                response_text = str(response)
+                            
+                            # Clean up response text
+                            response_text = response_text.strip()
+                            if response_text.startswith('"') and response_text.endswith('"'):
+                                response_text = response_text[1:-1]
+                            
+                            # Cache the response
+                            st.session_state.response_cache[cache_key] = response_text
+                    
                     st.session_state.chat_history.append({
-                        "content": response, 
+                        "content": response_text, 
                         "is_user": False,
                         "timestamp": datetime.now().strftime("%H:%M:%S")
                     })
                 except Exception as e:
+                    error_msg = str(e) if str(e) else "Unknown error occurred"
+                    st.error(f"❌ Error: {error_msg}")
                     st.session_state.chat_history.append({
-                        "content": f"I apologize, but I encountered an error: {str(e)}. Please try again.", 
+                        "content": f"I apologize, but I encountered an error: {error_msg}. Please try again or check your API token.", 
                         "is_user": False,
                         "timestamp": datetime.now().strftime("%H:%M:%S")
                     })
