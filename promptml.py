@@ -1791,6 +1791,13 @@ if selected == "💬 AI Chatbot":
         model_choice = st.selectbox("🚀 Model Speed", ["Fast (DialoGPT)", "Balanced (Zephyr)"], index=0)
         temperature = st.slider("🎛️ Creativity", 0.1, 1.0, 0.7, 0.1)
     
+    # API Token Status
+    if HUGGINGFACEHUB_API_TOKEN and HUGGINGFACEHUB_API_TOKEN != "your_hugging_face_token_here":
+        st.success("✅ API Token: Configured")
+    else:
+        st.error("❌ API Token: Not configured or invalid")
+        st.info("Please check your .env file and ensure HUGGINGFACEHUB_API_TOKEN is set correctly")
+    
     st.markdown("---")
     
     if llm is not None:
@@ -1995,7 +2002,18 @@ if selected == "💬 AI Chatbot":
                     })
                 except Exception as e:
                     error_msg = str(e) if str(e) else "Unknown error occurred"
-                    st.error(f"❌ Error: {error_msg}")
+                    error_type = type(e).__name__
+                    st.error(f"❌ Error ({error_type}): {error_msg}")
+                    st.error(f"🔍 Debug info: Model choice: {model_choice}, Temperature: {temperature}")
+                    
+                    # Add more specific error handling
+                    if "API" in error_msg or "token" in error_msg.lower():
+                        st.info("💡 This looks like an API token issue. Please check your Hugging Face token.")
+                    elif "model" in error_msg.lower():
+                        st.info("💡 This looks like a model loading issue. Try switching models.")
+                    elif "network" in error_msg.lower() or "connection" in error_msg.lower():
+                        st.info("💡 This looks like a network issue. Please check your internet connection.")
+                    
                     st.session_state.chat_history.append({
                         "content": f"I apologize, but I encountered an error: {error_msg}. Please try again or check your API token.", 
                         "is_user": False,
@@ -2008,7 +2026,7 @@ if selected == "💬 AI Chatbot":
     
     # Chat statistics
     if st.session_state.chat_history:
-        st.markdown("""
+        st.markdown(f"""
             <div class="glass-card" style="margin-top: 1rem;">
                 <h4 style="margin-top: 0;">📊 Chat Statistics</h4>
                 <div style="display: flex; gap: 2rem;">
