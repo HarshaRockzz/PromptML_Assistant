@@ -3,11 +3,13 @@ pandas
 plotly
 python-dotenv
 transformers
-tokenizers  # Add this line
+tokenizers
 langchain
 langchain-community
 langchain-experimental
 langchain-huggingface
+langchain-google-genai
+langchain-groq
 streamlit-chat
 streamlit-elements
 streamlit-option-menu
@@ -15,3 +17,5 @@ torch
 openpyxl
 accelerate
 psutil
+google-generativeai
+groq
