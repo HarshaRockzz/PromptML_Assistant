@@ -16,6 +16,8 @@ from langchain.chains import ConversationChain
 from langchain.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder
 from langchain.chains.conversation.memory import ConversationBufferWindowMemory
 from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_groq import ChatGroq
 from streamlit_chat import message
 from streamlit_elements import elements, mui, html, dashboard
 import streamlit.components.v1 as components
@@ -31,12 +33,20 @@ import json
 try:
     load_dotenv()
     HUGGINGFACEHUB_API_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN")
+    GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+    GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 except UnicodeDecodeError:
     st.warning("⚠️ .env file has encoding issues. Please recreate it with UTF-8 encoding.")
     HUGGINGFACEHUB_API_TOKEN = None
+    GOOGLE_API_KEY = None
+    GROQ_API_KEY = None
 except Exception as e:
     st.warning(f"⚠️ Error loading .env file: {str(e)}")
     HUGGINGFACEHUB_API_TOKEN = None
+    GOOGLE_API_KEY = None
+    GROQ_API_KEY = None
+
+# Set API keys directly if not in .env (fallback)
 
 # Set page config with custom icon (MUST BE FIRST STREAMLIT COMMAND)
 st.set_page_config(
@@ -58,10 +68,21 @@ else:
     st.error(f"Failed to import transformers: {transformers_import_error}")
     raise ImportError(transformers_import_error)
 
+# Display API token status and instructions
 if not HUGGINGFACEHUB_API_TOKEN or HUGGINGFACEHUB_API_TOKEN == "your_hugging_face_token_here":
     st.warning("⚠️ HUGGINGFACEHUB_API_TOKEN not configured. Please add your Hugging Face API token to the .env file.")
     st.info("📝 To get your API token: 1) Go to https://huggingface.co/settings/tokens 2) Create a new token 3) Add it to .env file")
     st.code("HUGGINGFACEHUB_API_TOKEN=your_actual_token_here", language="bash")
+
+if not GOOGLE_API_KEY or GOOGLE_API_KEY == "your_google_api_key_here":
+    st.warning("⚠️ GOOGLE_API_KEY not configured. Please add your Google API key to the .env file.")
+    st.info("📝 To get your API key: 1) Go to https://aistudio.google.com/app/apikey 2) Create a new API key 3) Add it to .env file")
+    st.code("GOOGLE_API_KEY=your_actual_api_key_here", language="bash")
+
+if not GROQ_API_KEY or GROQ_API_KEY == "your_groq_api_key_here":
+    st.warning("⚠️ GROQ_API_KEY not configured. Please add your Groq API key to the .env file.")
+    st.info("📝 To get your API key: 1) Go to https://console.groq.com/keys 2) Create a new API key 3) Add it to .env file")
+    st.code("GROQ_API_KEY=your_actual_api_key_here", language="bash")
 
 # Hero section will be shown only on EDA page
 
@@ -997,43 +1018,151 @@ if uploaded_files:
 else:
     df = None
 
-# Model Setup with Error Handling
+# Fast AI Chat System with Multiple Providers
 @st.cache_resource
-def load_model():
+def load_chat_models():
+    """Load multiple AI chat models for better performance and reliability"""
+    models = {}
+    
+    # Google Gemini (Fast and reliable)
     try:
-        import psutil
-        memory = psutil.virtual_memory()
-        st.write(f"Memory usage before loading model: {memory.percent}% ({memory.used / 1024**3:.2f} GB used)")
+        if GOOGLE_API_KEY:
+            models['gemini'] = ChatGoogleGenerativeAI(
+                model="gemini-1.5-flash",
+                google_api_key=GOOGLE_API_KEY,
+                temperature=0.7,
+                max_tokens=2048
+            )
+            st.success("✅ Google Gemini loaded successfully!")
+    except Exception as e:
+        st.warning(f"⚠️ Google Gemini failed to load: {str(e)}")
+    
+    # Groq (Ultra fast)
+    try:
+        if GROQ_API_KEY:
+            models['groq'] = ChatGroq(
+                model="llama3-8b-8192",
+                groq_api_key=GROQ_API_KEY,
+                temperature=0.7,
+                max_tokens=2048
+            )
+            st.success("✅ Groq loaded successfully!")
+    except Exception as e:
+        st.warning(f"⚠️ Groq failed to load: {str(e)}")
+    
+    # Hugging Face (Fallback)
+    try:
+        if HUGGINGFACEHUB_API_TOKEN:
+            models['huggingface'] = ChatHuggingFace(
+                llm=HuggingFaceEndpoint(
+                    repo_id="microsoft/DialoGPT-medium",
+                    task="text-generation",
+                    max_new_tokens=256,
+                    temperature=0.7,
+                    huggingfacehub_api_token=HUGGINGFACEHUB_API_TOKEN
+                )
+            )
+            st.success("✅ Hugging Face loaded successfully!")
+    except Exception as e:
+        st.warning(f"⚠️ Hugging Face failed to load: {str(e)}")
+    
+    return models
 
+# Legacy model for sentiment analysis
+@st.cache_resource
+def load_sentiment_model():
+    try:
         model_name = "distilbert-base-uncased-finetuned-sst-2-english"
-        st.write(f"Loading model: {model_name}")
-
         tokenizer = AutoTokenizer.from_pretrained(model_name, token=HUGGINGFACEHUB_API_TOKEN)
         model = AutoModelForSequenceClassification.from_pretrained(model_name, token=HUGGINGFACEHUB_API_TOKEN)
-
-        memory = psutil.virtual_memory()
-        st.write(f"Memory usage after loading model: {memory.percent}% ({memory.used / 1024**3:.2f} GB used)")
-
-        # Return model and tokenizer as a dictionary
         return {"model": model, "tokenizer": tokenizer}
     except Exception as e:
-        st.error(f"Model loading failed: {str(e)}. Please check your Hugging Face token and network connection.")
+        st.warning(f"Sentiment analysis model failed to load: {str(e)}")
         return None
+
+# Fast AI Response Function
+def get_ai_response(chat_models, user_message, model_choice="auto"):
+    """Get AI response from the best available model"""
+    
+    # Model priority: Groq (fastest) -> Gemini (reliable) -> HuggingFace (fallback)
+    if model_choice == "auto":
+        if 'groq' in chat_models:
+            model = chat_models['groq']
+            model_name = "Groq (Llama 3)"
+        elif 'gemini' in chat_models:
+            model = chat_models['gemini']
+            model_name = "Google Gemini"
+        elif 'huggingface' in chat_models:
+            model = chat_models['huggingface']
+            model_name = "Hugging Face"
+        else:
+            return "No AI models available. Please check your API keys.", "None"
+    else:
+        if model_choice in chat_models:
+            model = chat_models[model_choice]
+            model_name = model_choice.title()
+        else:
+            return "Selected model not available.", "None"
+    
+    try:
+        # Create a system prompt for data science assistance
+        system_prompt = """You are an expert data science AI assistant. You help users with:
+        - Data analysis and visualization
+        - Machine learning model selection and implementation
+        - Statistical analysis and insights
+        - Data preprocessing and cleaning
+        - Python programming for data science
+        - Explaining complex concepts in simple terms
+        
+        Provide clear, actionable advice and code examples when appropriate. Be concise but thorough."""
+        
+        # Format the message with system prompt
+        formatted_message = f"{system_prompt}\n\nUser: {user_message}\n\nAssistant:"
+        
+        # Get response
+        response = model.invoke(formatted_message)
+        
+        # Extract text content
+        if hasattr(response, 'content'):
+            response_text = response.content
+        elif isinstance(response, str):
+            response_text = response
+        else:
+            response_text = str(response)
+        
+        # Clean up response
+        response_text = response_text.strip()
+        if response_text.startswith('Assistant:'):
+            response_text = response_text.replace('Assistant:', '').strip()
+        
+        return response_text, model_name
+        
+    except Exception as e:
+        return f"Error getting response: {str(e)}", "Error"
 
 # Custom function for text classification
 def classify_text(model_dict, text):
-    inputs = model_dict["tokenizer"](text, return_tensors="pt", truncation=True, padding=True)
-    outputs = model_dict["model"](**inputs)
-    logits = outputs.logits
-    probabilities = logits.softmax(dim=-1)
-    prediction = probabilities.argmax(dim=-1).item()
-    return "Positive" if prediction == 1 else "Negative"
+    if model_dict is None:
+        return "Model not available"
+    try:
+        inputs = model_dict["tokenizer"](text, return_tensors="pt", truncation=True, padding=True)
+        outputs = model_dict["model"](**inputs)
+        logits = outputs.logits
+        probabilities = logits.softmax(dim=-1)
+        prediction = probabilities.argmax(dim=-1).item()
+        return "Positive" if prediction == 1 else "Negative"
+    except Exception as e:
+        return f"Classification error: {str(e)}"
 
-llm = load_model()
+# Load models
+chat_models = load_chat_models()
+sentiment_model = load_sentiment_model()
 
-# Check if model loaded successfully
-if llm is None:
-    st.warning("AI features are disabled due to model loading failure. Basic functionality is still available.")
+# Check if any chat models loaded successfully
+if not chat_models:
+    st.warning("⚠️ No AI chat models available. Please check your API keys.")
+else:
+    st.success(f"✅ {len(chat_models)} AI model(s) loaded successfully!")
 
 # EDA Page with Stunning Visualizations
 if selected == "📊 EDA":
@@ -1329,7 +1458,7 @@ if selected == "📊 EDA":
                 </div>
             """, unsafe_allow_html=True)
             
-            if llm is not None:
+            if chat_models:
                 # AI insights generation
                 with st.spinner("🤖 AI is analyzing your data..."):
                     time.sleep(2)  # Simulate AI processing
@@ -1367,7 +1496,7 @@ if selected == "📊 EDA":
                             </div>
                         """, unsafe_allow_html=True)
             else:
-                st.warning("🤖 AI features are disabled due to model loading failure.")
+                st.warning("🤖 AI features are disabled. Please check your API keys.")
     
     else:
         st.markdown("""
@@ -1524,7 +1653,7 @@ if selected == "🤖 Model Selection":
             submitted = st.form_submit_button("🚀 Get AI Recommendations", width='stretch')
         
         if submitted:
-            if llm is not None:
+            if chat_models:
                 with st.spinner("🤖 AI is analyzing your data and generating recommendations..."):
                     time.sleep(3)  # Simulate AI processing
                     
@@ -1579,7 +1708,7 @@ if selected == "🤖 Model Selection":
                         width='stretch'
                     )
             else:
-                st.error("🤖 Cannot generate recommendations because the AI model failed to load.")
+                st.error("🤖 Cannot generate recommendations. Please check your API keys.")
     
     else:
         st.markdown("""
@@ -1649,13 +1778,13 @@ if selected == "🔮 Predictions":
             """, unsafe_allow_html=True)
             
             if predict_button:
-                if llm is not None:
+                if sentiment_model is not None:
                     with st.spinner("🤖 AI is analyzing your text..."):
                         # Simulate AI processing time
                         time.sleep(2)
                         
                         # Generate prediction
-                        prediction = classify_text(llm, text_input)
+                        prediction = classify_text(sentiment_model, text_input)
                         
                         # Create prediction result
                         prediction_color = "#4CAF50" if prediction == "Positive" else "#F44336"
@@ -1747,7 +1876,7 @@ if selected == "🔮 Predictions":
                             width='stretch'
                         )
                 else:
-                    st.error("🤖 Cannot generate predictions because the AI model failed to load.")
+                    st.error("🤖 Cannot generate predictions. Please check your API keys.")
             else:
                 # Placeholder when no prediction is made
                 st.markdown("""
@@ -1781,54 +1910,43 @@ if selected == "💬 AI Chatbot":
         </div>
     """, unsafe_allow_html=True)
     
-    # Chat settings - moved up to define variables before use
-    st.markdown("### ⚙️ Settings")
+    # Fast AI Chat Settings
+    st.markdown("### ⚙️ AI Settings")
     col1, col2 = st.columns(2)
     with col1:
         auto_scroll = st.checkbox("Auto Scroll", value=True)
-        show_timestamps = st.checkbox("Show Timestamps", value=False)
+        show_timestamps = st.checkbox("Show Timestamps", value=True)
     with col2:
-        model_choice = st.selectbox("🚀 Model Speed", ["Fast (DialoGPT)", "Balanced (Zephyr)"], index=0)
+        # Model selection based on available models
+        available_models = ["auto"] + list(chat_models.keys())
+        model_choice = st.selectbox("🚀 AI Model", available_models, index=0, 
+                                  help="Auto selects the fastest available model")
         temperature = st.slider("🎛️ Creativity", 0.1, 1.0, 0.7, 0.1)
     
-    # API Token Status
-    if HUGGINGFACEHUB_API_TOKEN and HUGGINGFACEHUB_API_TOKEN != "your_hugging_face_token_here":
-        st.success("✅ API Token: Configured")
-    else:
-        st.error("❌ API Token: Not configured or invalid")
-        st.info("Please check your .env file and ensure HUGGINGFACEHUB_API_TOKEN is set correctly")
+    # API Status Display
+    st.markdown("### 🔑 API Status")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        if GOOGLE_API_KEY and GOOGLE_API_KEY != "your_google_api_key_here":
+            st.success("✅ Google Gemini")
+        else:
+            st.error("❌ Google Gemini")
+    with col2:
+        if GROQ_API_KEY and GROQ_API_KEY != "your_groq_api_key_here":
+            st.success("✅ Groq (Ultra Fast)")
+        else:
+            st.error("❌ Groq")
+    with col3:
+        if HUGGINGFACEHUB_API_TOKEN and HUGGINGFACEHUB_API_TOKEN != "your_hugging_face_token_here":
+            st.success("✅ Hugging Face")
+        else:
+            st.error("❌ Hugging Face")
     
     st.markdown("---")
     
-    if llm is not None:
-        try:
-            # Select model based on user choice
-            if model_choice == "Fast (DialoGPT)":
-                chat_llm = HuggingFaceEndpoint(
-                    repo_id="microsoft/DialoGPT-medium",  # Faster, lighter model
-                    task="text-generation",
-                    max_new_tokens=128,  # Very fast responses
-                    temperature=temperature,
-                    do_sample=True,
-                    top_p=0.9,
-                    repetition_penalty=1.1,
-                    huggingfacehub_api_token=HUGGINGFACEHUB_API_TOKEN
-                )
-            else:  # Balanced (Zephyr)
-                chat_llm = HuggingFaceEndpoint(
-                    repo_id="HuggingFaceH4/zephyr-7b-beta",
-                    task="text-generation",
-                    max_new_tokens=256,
-                    temperature=temperature,
-                    huggingfacehub_api_token=HUGGINGFACEHUB_API_TOKEN
-                )
-            chat_model = ChatHuggingFace(llm=chat_llm)
-        except Exception as e:
-            st.error(f"❌ Failed to load chat model: {str(e)}")
-            st.info("💡 Try switching to a different model or check your API token")
-            chat_model = None
-    else:
-        st.warning("🤖 Chatbot is disabled due to model loading failure.")
+    if not chat_models:
+        st.error("🤖 No AI models available. Please check your API keys.")
+        st.stop()
     
     # Initialize chat history and response cache
     if 'chat_history' not in st.session_state:
@@ -1849,7 +1967,7 @@ if selected == "💬 AI Chatbot":
                 </div>
         """, unsafe_allow_html=True)
         
-        # Display chat messages
+        # Display chat messages with model info
         if st.session_state.chat_history:
             for i, chat in enumerate(st.session_state.chat_history):
                 if chat["is_user"]:
@@ -1860,18 +1978,21 @@ if selected == "💬 AI Chatbot":
                                     <span style="color: white; font-weight: bold;">U</span>
                                 </div>
                                 <strong>You</strong>
+                                {f'<span style="margin-left: auto; font-size: 0.8rem; opacity: 0.7;">{chat.get("timestamp", "")}</span>' if show_timestamps else ''}
                             </div>
                             <p style="margin: 0;">{chat["content"]}</p>
                         </div>
                     """, unsafe_allow_html=True)
                 else:
+                    model_info = chat.get("model", "AI Assistant")
                     st.markdown(f"""
                         <div class="chat-message bot fade-in" style="animation-delay: {i*0.1}s;">
                             <div style="display: flex; align-items: center; margin-bottom: 0.5rem;">
                                 <div style="width: 30px; height: 30px; background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 1rem;">
                                     <span style="color: white; font-weight: bold;">🤖</span>
                                 </div>
-                                <strong>AI Assistant</strong>
+                                <strong>{model_info}</strong>
+                                {f'<span style="margin-left: auto; font-size: 0.8rem; opacity: 0.7;">{chat.get("timestamp", "")}</span>' if show_timestamps else ''}
                             </div>
                             <p style="margin: 0;">{chat["content"]}</p>
                         </div>
@@ -1903,19 +2024,35 @@ if selected == "💬 AI Chatbot":
         # Quick actions
         st.markdown("### ⚡ Quick Actions")
         if st.button("📊 Data Analysis Help", width='stretch'):
-            st.session_state.chat_history.append({"content": "Can you help me analyze my dataset?", "is_user": True})
+            st.session_state.chat_history.append({
+                "content": "Can you help me analyze my dataset?", 
+                "is_user": True,
+                "timestamp": datetime.now().strftime("%H:%M")
+            })
             st.rerun()
         
         if st.button("🤖 Model Selection", width='stretch'):
-            st.session_state.chat_history.append({"content": "What machine learning model should I use?", "is_user": True})
+            st.session_state.chat_history.append({
+                "content": "What machine learning model should I use?", 
+                "is_user": True,
+                "timestamp": datetime.now().strftime("%H:%M")
+            })
             st.rerun()
         
         if st.button("📈 Visualization Tips", width='stretch'):
-            st.session_state.chat_history.append({"content": "How can I create better visualizations?", "is_user": True})
+            st.session_state.chat_history.append({
+                "content": "How can I create better visualizations?", 
+                "is_user": True,
+                "timestamp": datetime.now().strftime("%H:%M")
+            })
             st.rerun()
         
         if st.button("🔧 Technical Help", width='stretch'):
-            st.session_state.chat_history.append({"content": "I need help with technical implementation", "is_user": True})
+            st.session_state.chat_history.append({
+                "content": "I need help with technical implementation", 
+                "is_user": True,
+                "timestamp": datetime.now().strftime("%H:%M")
+            })
             st.rerun()
         
         st.markdown("---")
@@ -1954,75 +2091,36 @@ if selected == "💬 AI Chatbot":
             submit = st.form_submit_button("🚀 Send", width='stretch')
     
     if submit and query:
-        if llm is not None:
-            with st.spinner("🤖 AI is thinking..."):
-                # Add user message
-                st.session_state.chat_history.append({
-                    "content": query, 
-                    "is_user": True,
-                    "timestamp": datetime.now().strftime("%H:%M:%S")
-                })
+        # Add user message immediately
+        st.session_state.chat_history.append({
+            "content": query, 
+            "is_user": True,
+            "timestamp": datetime.now().strftime("%H:%M")
+        })
+        
+        # Show typing indicator
+        with st.spinner("🤖 AI is thinking..."):
+            # Check cache first for faster responses
+            cache_key = f"{query.lower().strip()}_{model_choice}_{temperature}"
+            if cache_key in st.session_state.response_cache:
+                response_text, model_name = st.session_state.response_cache[cache_key]
+                st.success("⚡ Fast response from cache!")
+            else:
+                # Get AI response using the new fast system
+                response_text, model_name = get_ai_response(chat_models, query, model_choice)
                 
-                # Generate AI response with typing indicator and caching
-                try:
-                    if chat_model is None:
-                        # Fallback response if model failed to load
-                        response_text = "I'm sorry, but I'm having trouble connecting to the AI model. Please check your API token or try switching models."
-                    else:
-                        # Check cache first for faster responses
-                        cache_key = f"{query.lower().strip()}_{model_choice}_{temperature}"
-                        if cache_key in st.session_state.response_cache:
-                            response_text = st.session_state.response_cache[cache_key]
-                            st.success("⚡ Fast response from cache!")
-                        else:
-                            # Show typing indicator
-                            with st.spinner("🤖 AI is thinking..."):
-                                response = chat_model.invoke(query)
-                            
-                            # Extract text content from response object
-                            if hasattr(response, 'content'):
-                                response_text = response.content
-                            elif isinstance(response, str):
-                                response_text = response
-                            else:
-                                response_text = str(response)
-                            
-                            # Clean up response text
-                            response_text = response_text.strip()
-                            if response_text.startswith('"') and response_text.endswith('"'):
-                                response_text = response_text[1:-1]
-                            
-                            # Cache the response
-                            st.session_state.response_cache[cache_key] = response_text
-                    
-                    st.session_state.chat_history.append({
-                        "content": response_text, 
-                        "is_user": False,
-                        "timestamp": datetime.now().strftime("%H:%M:%S")
-                    })
-                except Exception as e:
-                    error_msg = str(e) if str(e) else "Unknown error occurred"
-                    error_type = type(e).__name__
-                    st.error(f"❌ Error ({error_type}): {error_msg}")
-                    st.error(f"🔍 Debug info: Model choice: {model_choice}, Temperature: {temperature}")
-                    
-                    # Add more specific error handling
-                    if "API" in error_msg or "token" in error_msg.lower():
-                        st.info("💡 This looks like an API token issue. Please check your Hugging Face token.")
-                    elif "model" in error_msg.lower():
-                        st.info("💡 This looks like a model loading issue. Try switching models.")
-                    elif "network" in error_msg.lower() or "connection" in error_msg.lower():
-                        st.info("💡 This looks like a network issue. Please check your internet connection.")
-                    
-                    st.session_state.chat_history.append({
-                        "content": f"I apologize, but I encountered an error: {error_msg}. Please try again or check your API token.", 
-                        "is_user": False,
-                        "timestamp": datetime.now().strftime("%H:%M:%S")
-                    })
-                
-                st.rerun()
-        else:
-            st.error("🤖 Cannot respond because the AI model failed to load.")
+                # Cache the response
+                st.session_state.response_cache[cache_key] = (response_text, model_name)
+        
+        # Add AI response to chat history
+        st.session_state.chat_history.append({
+            "content": response_text, 
+            "is_user": False,
+            "model": model_name,
+            "timestamp": datetime.now().strftime("%H:%M")
+        })
+        
+        st.rerun()
     
     # Chat statistics
     if st.session_state.chat_history:
